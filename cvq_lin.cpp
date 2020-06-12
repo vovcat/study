@@ -1,4 +1,4 @@
-// g++ -g -Og -Wall -Wextra test_cvq.cpp -o test_cvq -lpthread && ./test_cvq
+// g++ -g -O0 -Wall -Wextra cvq_lin.cpp -o cvq_lin -lpthread && ./cvq_lin
 
 #include <stdio.h> // printf(). getchar()
 #include <unistd.h> // usleep()

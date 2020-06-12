@@ -1,10 +1,11 @@
 // i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc test_wx.cpp -o test_wx.exe -lgdi32 && wine ./test_wx.exe
 // g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_wx.cpp -o test_wx -lX11 -lXext -lpthread && ./test_wx
 
+#define _WIN32_WINNT 0x0601 // Windows 7
+
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
 #include <string.h> // strstr()
-#include <unistd.h> // usleep(), sysconf()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -12,9 +13,6 @@
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
-#endif
-#ifndef ARRAYSIZE
-#define ARRAYSIZE(a) ARRAY_SIZE(s)
 #endif
 
 // asm
@@ -46,11 +44,6 @@ template<typename T> struct cqueue
 #include <queue>
 #include <windows.h>
 
-extern "C" VOID WINAPI InitializeConditionVariable(PCONDITION_VARIABLE);
-extern "C" BOOL WINAPI SleepConditionVariableCS(PCONDITION_VARIABLE, PCRITICAL_SECTION, DWORD);
-extern "C" VOID WINAPI WakeAllConditionVariable(PCONDITION_VARIABLE);
-extern "C" VOID WINAPI WakeConditionVariable(PCONDITION_VARIABLE);
-
 template<typename T> struct cqueue
 {
     std::queue<T> q;
@@ -64,7 +57,7 @@ template<typename T> struct cqueue
 
 #endif
 
-const int keydelay = 5000;
+const int keydelay = 1000;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
@@ -77,6 +70,17 @@ int getkey(int wait)
     return getkey_q.get();
 }
 
+#ifdef WIN32
+asm volatile (R"(
+    # export to test_wx_asm.cpp
+    pframebuf = _pframebuf
+    getkey = _getkey
+    # import from test_wx_asm.cpp
+    _asm_main = asm_main
+)");
+#endif
+
+
 //
 // MAIN: linux
 //
@@ -84,7 +88,8 @@ int getkey(int wait)
 #if defined(linux)
 
 #include <stdlib.h> // aligned_alloc()
-#include <time.h> // time()
+#include <unistd.h> // usleep(), sysconf()
+#include <time.h> // time(), nanosleep()
 #include <locale.h> // setlocale()
 #include <pthread.h> // pthread_cancel()
 #include <sys/ipc.h> // IPC_PRIVATE, IPC_CREAT
@@ -108,9 +113,9 @@ int getkey(int wait)
 
 Display *display;
 
-static void RedrawWindow(Display *display, Window win)
+static void RedrawWindow(Display *display, Window win, int count = 0)
 {
-    XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, 0 };
+    XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, count };
     XSendEvent(display, win, False, 0 /*event_mask*/, (XEvent *) &ev);
 }
 
@@ -394,9 +399,9 @@ int main(int argc, char *argv[])
     std::thread gThread(asm_main);
     gThread.detach();
 
-    sigset_t sigmask;
-    sigfillset(&sigmask);
-    pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
+    sigset_t sigmask = {};
+    sigaddset(&sigmask, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
     long timer = timer_start(display, win, 100);
@@ -458,14 +463,25 @@ int main(int argc, char *argv[])
                 done = key == 'q';
                 break;
             }
+            case MotionNotify: {
+                XMotionEvent *xev = &ev.xmotion;
+                int key = Key::MouseMove | (xev->x & 2047) << 9 | (xev->y & 2047) << 20;
+                getkey_q.put(key);
+                break;
+            }
             case ButtonPress:
             case ButtonRelease: {
                 XButtonEvent *xev = &ev.xbutton;
-                if (ev.type != ButtonPress) XUngrabPointer(display, xev->time);
-                else XGrabPointer(display, win, true, ButtonMotionMask, GrabModeAsync, GrabModeAsync, win, None, xev->time);
-                break;
-            }
-            case MotionNotify: {
+                int key = 0;
+                if (ev.type == ButtonPress) {
+                    XGrabPointer(display, win, true, ButtonMotionMask, GrabModeAsync, GrabModeAsync, win, None, xev->time);
+                    key = Key::MouseLeft;
+                } else {
+                    XUngrabPointer(display, xev->time);
+                    key = Key::MouseRelLeft;
+                }
+                key = ((key + xev->button - 1) & 511) | (xev->x & 2047) << 9 | (xev->y & 2047) << 20;
+                getkey_q.put(key);
                 break;
             }
             default: {
@@ -538,7 +554,6 @@ static BOOL gModalState = false; // Is messagebox shown
 
 static int debug = 0;
 static int benchmark = 0;
-int method = 1; // 1 - CreateCompatibleBitmap/SetDIBits, 2 - CreateDIBSection, 3 - SetDIBitsToDevice
 int nredraws = 0;
 int start = 20;
 
@@ -579,7 +594,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             gTimer1 = SetTimer(hWnd, IDT_TIMER1, (UINT) 100, (TIMERPROC) NULL);
             return 0;
         }
-
         case WM_CLOSE: {
             if (MessageBox(hWnd, "Really quit?", THIS_CLASSNAME, MB_OKCANCEL) != IDOK) {
                 // User canceled. Do nothing.
@@ -587,7 +601,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             }
             break;
         }
-
         case WM_DESTROY: {
             if (gTimer1) {
                 if (gTimer1) KillTimer(hWnd, gTimer1);
@@ -603,14 +616,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             pframebuf = &framebuf;
             gWnd = 0;
 
-            if (method == 1) {
                 DeleteObject(gBitmap);
                 DeleteDC(gdcMem);
-            } else if (method == 2) {
-                DeleteObject(gBitmap);
-                DeleteDC(gdcMem);
-            } else if (method == 3) {
-            }
 
             PostQuitMessage(0);
             return 0;
@@ -631,14 +638,78 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             GetClientRect(hWnd, &rcClient);
             break;
         }
+
+        case WM_MOUSEMOVE: {
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug > 1) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+            int key = Key::MouseMove | (x & 2047) << 9 | (y & 2047) << 20;
+            getkey_q.put(key);
+            return 0;
+        }
+        case WM_MOUSEWHEEL: {
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int delta = int(wParam) >> 16;
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x delta=%d xy=%d,%d\n",
+                debWin_msg(uMsg), state, delta, x, y);
+
+            int key = (x & 2047) << 9 | (y & 2047) << 20;
+            if (delta < 0) { getkey_q.put(Key::MousePgDn | key); getkey_q.put(Key::MouseRelPgDn | key); }
+            else { getkey_q.put(Key::MousePgUp | key); getkey_q.put(Key::MouseRelPgUp | key); }
+            return 0;
+        }
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+        case WM_RBUTTONDOWN:
         case WM_LBUTTONDOWN: {
-            ClipCursor(&rcClient);
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+
+            int key = uMsg == WM_LBUTTONDOWN ? Key::MouseLeft :
+                    uMsg == WM_MBUTTONDOWN ? Key::MouseMiddle :
+                    uMsg == WM_RBUTTONDOWN ? Key::MouseRight :
+                    uMsg == WM_XBUTTONDOWN ? Key::MouseX1 : 0;
+            if (!key) key = state == 1 ? Key::MouseLeft :
+                    state == 2 ? Key::MouseRight :
+                    state == 0x10 ? Key::MouseMiddle : 0;
+            if (key) getkey_q.put(key | (x & 2047) << 9 | (y & 2047) << 20);
+
+            // Restrict the mouse cursor to the client area.
+            // This ensures that the window receives a matching WM_LBUTTONUP message.
+            if (state) ClipCursor(&rcClient);
             return 0;
         }
+        case WM_XBUTTONUP:
+        case WM_MBUTTONUP:
+        case WM_RBUTTONUP:
         case WM_LBUTTONUP: {
-            ClipCursor(NULL);
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+
+            int key = uMsg == WM_LBUTTONUP ? Key::MouseRelLeft :
+                    uMsg == WM_MBUTTONUP ? Key::MouseRelMiddle :
+                    uMsg == WM_RBUTTONUP ? Key::MouseRelRight :
+                    uMsg == WM_XBUTTONUP ? Key::MouseRelX1 : 0;
+            if (key) getkey_q.put(key | (x & 2047) << 9 | (y & 2047) << 20);
+
+            // Release the mouse cursor
+            if (!state) ClipCursor(NULL);
             return 0;
         }
+
         case WM_SYSKEYUP:
         case WM_SYSKEYDOWN:
         case WM_KEYUP:
@@ -665,7 +736,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                         {Key::ShiftL,VK_SHIFT}, {Key::ShiftR,VK_RSHIFT}, {Key::ControlL,VK_CONTROL}, {Key::WinL,224/*VK_LWIN*/}, {Key::AltL,VK_MENU}, {Key::AltR,VK_RMENU}, {Key::Menu,VK_APPS}, {Key::ControlR,VK_RCONTROL},
                         {Key::Home,VK_HOME}, {Key::Left,VK_LEFT}, {Key::Up,VK_UP}, {Key::Right,VK_RIGHT}, {Key::Down,VK_DOWN}, {Key::PgUp,VK_PRIOR}, {Key::PgDn,VK_NEXT}, {Key::End,VK_END},
                     };
-                    for (size_t i = 0; i < ARRAYSIZE(keymapVK); i++) {
+                    for (size_t i = 0; i < ARRAY_SIZE(keymapVK); i++) {
                         if (vk == keymapVK[i].vk) {
                             key = keymapVK[i].key;
                             break;
@@ -722,11 +793,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             }
             return 0;
         }
-
-        case WM_MOUSEFIRST:
-        case WM_NCMOUSEMOVE:
-        case WM_SETCURSOR:
-            break;
     }
 
     return DefWindowProc(hWnd, uMsg, wParam, lParam);
@@ -739,7 +805,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     HWND hPrev = NULL;
     int nloops = -1;
 
-    if (lpCmdLine[0] >= '0' && lpCmdLine[0] <= '9') method = lpCmdLine[0] - '0';
     if (strstr(lpCmdLine, "-d")) debug = 1;
     if (strstr(lpCmdLine, "-dd")) debug = 2;
     if (strstr(lpCmdLine, "-b")) { benchmark = 1; debug = 0; }
@@ -769,7 +834,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     }
 
     {
-        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
         RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
@@ -796,6 +861,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
             return 1;
         }
+
+        SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
 
         ShowWindow(hWnd, nCmdShow);
         GdiFlush();

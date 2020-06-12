@@ -1,4 +1,4 @@
-// i686-w64-mingw32-g++ -g -Og -Wall -Wextra -mwindows -static-libgcc win_cv.cpp -o win_cv && wine ./win_cv
+// i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -mwindows -static-libgcc cv_win.cpp -o cv_win.exe && wine ./cv_win.exe
 
 #include <windows.h>
 #include <stdlib.h>
@@ -10,8 +10,8 @@ extern "C" VOID WINAPI WakeAllConditionVariable(PCONDITION_VARIABLE);
 extern "C" VOID WINAPI WakeConditionVariable(PCONDITION_VARIABLE);
 
 #define BUFFER_SIZE 10
-#define PRODUCER_SLEEP_TIME_MS 500
-#define CONSUMER_SLEEP_TIME_MS 2000
+#define PRODUCER_SLEEP_TIME_MS 50
+#define CONSUMER_SLEEP_TIME_MS 200
 
 LONG Buffer[BUFFER_SIZE];
 LONG LastItemProduced;

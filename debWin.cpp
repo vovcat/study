@@ -349,6 +349,7 @@ static const struct {
     GetClipboardFormatName() to get its name (MAY change in the future,
     though!).
     */
+#undef TAB
 };
 
 const char *debWin_msg(UINT uMsg)
@@ -357,7 +358,7 @@ const char *debWin_msg(UINT uMsg)
     static char buf[4096] = { };
     static char *bufp = buf;
 
-    for (size_t i = 0; i < sizeof(WinMsgNames) / sizeof(WinMsgNames[0]); i++)
+    for (size_t i = 0; i < ARRAY_SIZE(WinMsgNames); i++)
         if (WinMsgNames[i].type == uMsg)
             return WinMsgNames[i].name;
 
@@ -374,7 +375,7 @@ const char *debWin_msg(UINT uMsg)
         bufp += len + 1;
         return p;
     }
-    int len = sprintf(buf, "MsgUnknown(%u)", uMsg);
+    int len = sprintf(bufp, "MsgUnknown(%u)", uMsg);
     char *p = bufp;
     bufp += len + 1;
     return p;

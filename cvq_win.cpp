@@ -1,4 +1,4 @@
-// i686-w64-mingw32-g++ -g -Og -Wall -Wextra -mwindows -static-libgcc win_cvq.cpp -o win_cvq && wine ./win_cvq
+// i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -mwindows -static-libgcc cvq_win.cpp -o cvq_win.exe && wine ./cvq_win.exe
 
 #include <windows.h>
 #include <stdio.h> // printf(), getchar()
@@ -44,7 +44,6 @@ void getkey_q_put(int key)
     LeaveCriticalSection(&getkey_q_mutex);
     WakeConditionVariable(&getkey_q_notempty);
 }
-
 
 #define PRODUCER_SLEEP_TIME_MS 50
 #define CONSUMER_SLEEP_TIME_MS 200

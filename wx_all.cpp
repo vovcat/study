@@ -19,10 +19,12 @@ X11:
      shm backing_store = NotUseful +send_event +dbe === 1001 redraws in 5.79s = 172.77 draw/s
 */
 
+#define _WIN32_WINNT 0x0601 // Windows 7
+
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
 #include <string.h> // strstr()
-#include <unistd.h> // usleep(), sysconf()
+#include <time.h> // time(), nanosleep()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -64,11 +66,6 @@ template<typename T> struct cqueue
 #include <queue>
 #include <windows.h>
 
-extern "C" VOID WINAPI InitializeConditionVariable(PCONDITION_VARIABLE);
-extern "C" BOOL WINAPI SleepConditionVariableCS(PCONDITION_VARIABLE, PCRITICAL_SECTION, DWORD);
-extern "C" VOID WINAPI WakeAllConditionVariable(PCONDITION_VARIABLE);
-extern "C" VOID WINAPI WakeConditionVariable(PCONDITION_VARIABLE);
-
 template<typename T> struct cqueue
 {
     std::queue<T> q;
@@ -82,7 +79,87 @@ template<typename T> struct cqueue
 
 #endif
 
-const int keydelay = 5000;
+static const struct {
+    int key;
+    const char *name;
+} KeyNames[] = {
+#define TAB(x) { x, #x }
+    TAB(Key::Nil),
+    TAB(Key::F1),
+    TAB(Key::F2),
+    TAB(Key::F3),
+    TAB(Key::F4),
+    TAB(Key::F5),
+    TAB(Key::F6),
+    TAB(Key::F7),
+    TAB(Key::F8),
+    TAB(Key::F9),
+    TAB(Key::F10),
+    TAB(Key::F11),
+    TAB(Key::F12),
+    TAB(Key::ScrollLock),
+    TAB(Key::Pause),
+    TAB(Key::Ins),
+    TAB(Key::Del),
+    TAB(Key::CapsLock),
+    TAB(Key::ShiftL),
+    TAB(Key::ShiftR),
+    TAB(Key::ControlL),
+    TAB(Key::WinL),
+    TAB(Key::AltL),
+    TAB(Key::AltR),
+    TAB(Key::WinR),
+    TAB(Key::Menu),
+    TAB(Key::ControlR),
+    TAB(Key::Home),
+    TAB(Key::Left),
+    TAB(Key::Up),
+    TAB(Key::Right),
+    TAB(Key::Down),
+    TAB(Key::PgUp),
+    TAB(Key::PgDn),
+    TAB(Key::End),
+    TAB(Key::MouseMove),
+    TAB(Key::MouseLeft),
+    TAB(Key::MouseMiddle),
+    TAB(Key::MouseRight),
+    TAB(Key::MousePgUp),
+    TAB(Key::MousePgDn),
+    TAB(Key::MouseX1),
+    TAB(Key::MouseX2),
+    TAB(Key::MouseRelLeft),
+    TAB(Key::MouseRelMiddle),
+    TAB(Key::MouseRelRight),
+    TAB(Key::MouseRelPgUp),
+    TAB(Key::MouseRelPgDn),
+    TAB(Key::MouseRelX1),
+    TAB(Key::MouseRelX2),
+#undef TAB
+};
+
+const char *KeyName(int key) {
+    static char buf[4096] = { };
+    static char *bufp = buf;
+    int len;
+
+    key &= 511;
+    if (!key) return "Nokey";
+    if (key < 32)
+        len = sprintf(bufp, "^%c", key);
+    else if (key < 256)
+        len = sprintf(bufp, "'%c'", key);
+    else {
+        for (size_t i = 0; i < ARRAY_SIZE(KeyNames); i++)
+            if (KeyNames[i].key == key)
+                return KeyNames[i].name;
+        len = sprintf(bufp, "Key::Unknown(%d)'", key);
+    }
+    char *p = bufp;
+    bufp += len + 1;
+    return p;
+}
+
+const int keydelay = 1000;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
@@ -92,10 +169,37 @@ int getkey(int wait)
 {
     //extern HWND gWnd;
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
+
     usleep(keydelay);
+    /*
+    struct timespec req = {}, rem = {};
+    req.tv_sec = keydelay / 1000000;
+    req.tv_nsec = (keydelay % 1000000) * 1000;
+    nanosleep(&req, &rem);
+    */
+    /*
+    struct timeval tv;
+    tv.tv_sec = keydelay / 1000000;
+    tv.tv_usec = keydelay % 1000000;
+    select(0, NULL, NULL, NULL, &tv);
+    */
     if (!wait && getkey_q.size() == 0) return 0;
+    auto key = getkey_q.get();
+    printf("key=%s %08x\n", KeyName(key), key);
+    return key;
     return getkey_q.get();
 }
+
+#ifdef WIN32
+asm volatile (R"(
+    # export to test_wx_asm.cpp
+    pframebuf = _pframebuf
+    getkey = _getkey
+    # import from test_wx_asm.cpp
+    _asm_main = asm_main
+)");
+#endif
+
 
 //
 // MAIN: linux
@@ -104,7 +208,8 @@ int getkey(int wait)
 #if defined(linux)
 
 #include <stdlib.h> // aligned_alloc()
-#include <time.h> // time()
+#include <unistd.h> // usleep(), sysconf()
+#include <time.h> // time(), nanosleep()
 #include <locale.h> // setlocale()
 #include <pthread.h> // pthread_cancel()
 #include <sys/ipc.h> // IPC_PRIVATE, IPC_CREAT
@@ -163,9 +268,9 @@ void print_prop(Window win, Atom a)
     print_prop(owin, XA_SECONDARY); \
 } while (0)
 
-static void RedrawWindow(Display *display, Window win)
+static void RedrawWindow(Display *display, Window win, int count = 0)
 {
-    XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, 0 };
+    XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, count };
     XSendEvent(display, win, False, 0 /*event_mask*/, (XEvent *) &ev);
 }
 
@@ -194,18 +299,20 @@ static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
     gettimeofday(&now, NULL);
     long ms = timediff_ms(&timer_last_tv, &now);
     timer_last_tv = now;
+    (void) ms;
 
     if (!timer_dpy || !timer_win) return;
     //XClientMessageEvent ev = { ClientMessage, 0, True, timer_dpy, timer_win, timer_atom, 32, {.l = {ms}} };
     //XSendEvent(timer_dpy, timer_win, False, 0 /*event_mask*/, (XEvent *) &ev);
-    RedrawWindow(timer_dpy, timer_win);
+    RedrawWindow(timer_dpy, timer_win, timer_atom);
     XFlush(timer_dpy);
 }
 
-long timer_start(Display *dpy, Window win, int ms)
+long timer_start(Display *dpy, Window win, Atom atom, int ms)
 {
     timer_dpy = dpy;
     timer_win = win;
+    timer_atom = atom;
 
     struct sigaction sa = {};
     sa.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -366,6 +473,7 @@ int main(int argc, char *argv[])
     //DefineAtom(SECONDARY);
     DefineAtom(CLIPBOARD);
     DefineAtom(_NET_WM_PING);
+    DefineAtom(_MOTIF_WM_HINTS);
 
     /* WINDOW PART */
 
@@ -422,6 +530,43 @@ int main(int argc, char *argv[])
 
     Atom protocols[] = { XA_WM_DELETE_WINDOW, XA__NET_WM_PING, };
     XSetWMProtocols(display, win, protocols, ARRAY_SIZE(protocols));
+
+    // _MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x3, 0x2c, 0x3a, 0x0, 0x0
+    typedef struct {
+        unsigned long flags;
+        unsigned long functions;
+        unsigned long decorations;
+        long input_mode;
+        unsigned long status;
+    } MwmHints;
+    enum {
+        MWM_HINTS_FUNCTIONS =	(1L << 0),
+        MWM_HINTS_DECORATIONS =	(1L << 1),
+        MWM_FUNC_ALL =		(1L << 0),
+        MWM_FUNC_RESIZE =	(1L << 1),
+        MWM_FUNC_MOVE =		(1L << 2),
+        MWM_FUNC_MINIMIZE =	(1L << 3),
+        MWM_FUNC_MAXIMIZE =	(1L << 4),
+        MWM_FUNC_CLOSE =	(1L << 5),
+        MWM_DECOR_ALL =		(1L << 0),
+        MWM_DECOR_BORDER =	(1L << 1),
+        MWM_DECOR_RESIZEH =	(1L << 2),
+        MWM_DECOR_TITLE =	(1L << 3),
+        MWM_DECOR_MENU =	(1L << 4),
+        MWM_DECOR_MINIMIZE =	(1L << 5),
+        MWM_DECOR_MAXIMIZE =	(1L << 6),
+        MWM_INPUT_MODELESS = 0,
+        MWM_INPUT_PRIMARY_APPLICATION_MODAL = 1,
+        MWM_INPUT_SYSTEM_MODAL = 2,
+        MWM_INPUT_FULL_APPLICATION_MODAL = 3,
+        MWM_INPUT_APPLICATION_MODAL = MWM_INPUT_PRIMARY_APPLICATION_MODAL,
+        MWM_TEAROFF_WINDOW =	(1L<<0)
+    };
+    MwmHints mwmhints;
+    mwmhints.flags = MWM_HINTS_FUNCTIONS | MWM_HINTS_DECORATIONS;
+    mwmhints.functions = MWM_FUNC_RESIZE | MWM_FUNC_MINIMIZE | MWM_FUNC_MAXIMIZE | MWM_FUNC_CLOSE;
+    mwmhints.decorations = MWM_DECOR_BORDER | MWM_DECOR_TITLE | MWM_DECOR_MENU | MWM_DECOR_MINIMIZE;
+    XChangeProperty(display, win, XA__MOTIF_WM_HINTS, XA__MOTIF_WM_HINTS, 32, PropModeReplace, (unsigned char*)&mwmhints, 5);
 
     // Clear backgroud, it looks more pleasant before the redraw event does its job
     XSetWindowBackground(display, win, 0x333333); // dark gray
@@ -815,12 +960,12 @@ int main(int argc, char *argv[])
     std::thread gThread(asm_main);
     gThread.detach();
 
-    sigset_t sigmask;
-    sigfillset(&sigmask);
-    pthread_sigmask(SIG_BLOCK, &sigmask, NULL);
+    sigset_t sigmask = {};
+    sigaddset(&sigmask, SIGALRM);
+    pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, 100);
+    long timer = timer_start(display, win, XA_NULL, 100);
 
     // Main loop
     bool done = 0;
@@ -893,7 +1038,9 @@ int main(int argc, char *argv[])
                             }
                         }
                     }
-                    if (key) getkey_q.put(key);
+                    if (key) {
+                        getkey_q.put(key);
+                    }
                 }
 
                 if (nbytes == 1 && str[0] < ' ') {
@@ -903,9 +1050,10 @@ int main(int argc, char *argv[])
                     nbytes = 2;
                 }
 
+                int xkey = key & 511;
                 XKeyEvent *xev = &ev.xkey;
                 debX11ev2(win, &ev, "<-", xev->root, "[%d] %T", cnt++,
-                    ssprintf("subwindow=%T time=%lu xy=%d,%d xy_root=%d,%d state=%x keycode=%u keysym=%lx ks=%s(%lx) ksxkb=%s str='%.*s'(%db) key='%c' same_screen=%d",
+                    ssprintf("subwindow=%T time=%lu xy=%d,%d xy_root=%d,%d state=%x keycode=%u keysym=%lx ks=%s(%lx) ksxkb=%s str='%.*s'(%db) key='%s%c' same_screen=%d",
                         //*Window*/ debX11_win(xev->root),	/* root window that the event occurred on */
                         /*Window*/ debX11_win(xev->subwindow),	/* child window */
                         /*Time*/ xev->time,			/* milliseconds */
@@ -913,7 +1061,7 @@ int main(int argc, char *argv[])
                         /*int*/ xev->x_root, xev->y_root,	/* coordinates relative to root */
                         /*unsigned int*/ xev->state,		/* key or button mask */
                         /*unsigned int*/ xev->keycode, keysym, XKeysymToString(XLookupKeysym(&ev.xkey, 0)), XLookupKeysym(&ev.xkey, 0),
-                        XKeysymToString(XkbKeycodeToKeysym(display, xev->keycode, 0, 0)), nbytes, str, nbytes, key,
+                        XKeysymToString(XkbKeycodeToKeysym(display, xev->keycode, 0, 0)), nbytes, str, nbytes, xkey < 32 ? "^" : "", xkey < 32 ? xkey + '@' : xkey,
                         /*Bool*/ xev->same_screen       	/* same screen flag */
                     )
                 );
@@ -921,29 +1069,10 @@ int main(int argc, char *argv[])
                 done = key == 'q';
                 break;
             }
-            case ButtonPress:
-            case ButtonRelease: {
-                static int cnt = 1;
-                XButtonEvent *xev = &ev.xbutton;
-                debX11ev2(win, &ev, "<-", xev->root, "[%d] %T", cnt++,
-                    ssprintf("subwindow=%T time=%lu xy=%d,%d xy_root=%d,%d state=%x button=%u same_screen=%d",
-                        //*Window*/ debX11_win(xev->root),	/* root window that the event occurred on */
-                        /*Window*/ debX11_win(xev->subwindow),	/* child window */
-                        /*Time*/ xev->time,      		/* milliseconds */
-                        /*int*/ xev->x, xev->y,       		/* pointer x, y coordinates in event window */
-                        /*int*/ xev->x_root, xev->y_root,	/* coordinates relative to root */
-                        /*unsigned int*/ xev->state,     	/* key or button mask */
-                        /*unsigned int*/ xev->button,
-                        /*Bool*/ xev->same_screen       	/* same screen flag */
-                    )
-                );
-                if (ev.type != ButtonPress) XUngrabPointer(display, xev->time);
-                else XGrabPointer(display, win, true, ButtonMotionMask, GrabModeAsync, GrabModeAsync, win, None, xev->time);
-                break;
-            }
             case MotionNotify: {
                 static int cnt = 1;
                 XMotionEvent *xev = &ev.xmotion;
+                if (0)
                 debX11ev2(win, &ev, "<-", xev->root, "[%d] %T", cnt++,
                     ssprintf("subwindow=%T time=%lu xy=%d,%d xy_root=%d,%d state=%x is_hint=%d same_screen=%d",
                         //*Window*/ debX11_win(xev->root),	/* root window that the event occurred on */
@@ -956,6 +1085,37 @@ int main(int argc, char *argv[])
                         /*Bool*/ xev->same_screen       	/* same screen flag */
                     )
                 );
+                int key = Key::MouseMove | (xev->x & 2047) << 9 | (xev->y & 2047) << 20;
+                getkey_q.put(key);
+                break;
+            }
+            case ButtonPress:
+            case ButtonRelease: {
+                static int cnt = 1;
+                XButtonEvent *xev = &ev.xbutton;
+                if (0)
+                debX11ev2(win, &ev, "<-", xev->root, "[%d] %T", cnt++,
+                    ssprintf("subwindow=%T time=%lu xy=%d,%d xy_root=%d,%d state=%x button=%u same_screen=%d",
+                        //*Window*/ debX11_win(xev->root),	/* root window that the event occurred on */
+                        /*Window*/ debX11_win(xev->subwindow),	/* child window */
+                        /*Time*/ xev->time,      		/* milliseconds */
+                        /*int*/ xev->x, xev->y,       		/* pointer x, y coordinates in event window */
+                        /*int*/ xev->x_root, xev->y_root,	/* coordinates relative to root */
+                        /*unsigned int*/ xev->state,     	/* key or button mask */
+                        /*unsigned int*/ xev->button,
+                        /*Bool*/ xev->same_screen       	/* same screen flag */
+                    )
+                );
+                int key = 0;
+                if (ev.type == ButtonPress) {
+                    XGrabPointer(display, win, true, ButtonMotionMask, GrabModeAsync, GrabModeAsync, win, None, xev->time);
+                    key = Key::MouseLeft;
+                } else {
+                    XUngrabPointer(display, xev->time);
+                    key = Key::MouseRelLeft;
+                }
+                key = ((key + xev->button - 1) & 511) | (xev->x & 2047) << 9 | (xev->y & 2047) << 20;
+                getkey_q.put(key);
                 break;
             }
             case EnterNotify:
@@ -985,7 +1145,7 @@ int main(int argc, char *argv[])
                         debX11_atom(xev->message_type), xev->format, xev->serial);
                 // https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html
                 if (xev->message_type == XA_WM_PROTOCOLS && xev->format == 32 && xev->data.l[0] == (long) XA__NET_WM_PING) {
-                    xev->window = rootwin;
+                    xev->window = rootwin; // reply to Window Manager that we're alive
                     XSendEvent(display, xev->window, False, SubstructureNotifyMask | SubstructureRedirectMask, &ev);
                 }
                 break;
@@ -1224,22 +1384,19 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             */
             // ptMaxSize=1288,808 ptMaxPosition=-4,-4, ptMinTrackSize=112,27, ptMaxTrackSize=1292,812
             if (debug) printf("WM_GETMINMAXINFO got ptMaxSize=%ld,%ld ptMaxPosition=%ld,%ld, ptMinTrackSize=%ld,%ld, ptMaxTrackSize=%ld,%ld\n",
-                mmi->ptMaxSize.x, mmi->ptMaxSize.y,
-                mmi->ptMaxPosition.x, mmi->ptMaxPosition.y,
-                mmi->ptMinTrackSize.x, mmi->ptMinTrackSize.y,
-                mmi->ptMaxTrackSize.x, mmi->ptMaxTrackSize.y);
-            /*
+                mmi->ptMaxSize.x, mmi->ptMaxSize.y, mmi->ptMaxPosition.x, mmi->ptMaxPosition.y,
+                mmi->ptMinTrackSize.x, mmi->ptMinTrackSize.y, mmi->ptMaxTrackSize.x, mmi->ptMaxTrackSize.y);
+
             mmi->ptMaxSize.x = FB_WIDTH; mmi->ptMaxSize.y = FB_HEIGHT;
             mmi->ptMinTrackSize.x = FB_WIDTH; mmi->ptMinTrackSize.y = FB_HEIGHT;
             mmi->ptMaxTrackSize.x = FB_WIDTH; mmi->ptMaxTrackSize.y = FB_HEIGHT;
 
             if (debug) printf("WM_GETMINMAXINFO set ptMaxSize=%ld,%ld ptMaxPosition=%ld,%ld, ptMinTrackSize=%ld,%ld, ptMaxTrackSize=%ld,%ld\n",
-                mmi->ptMaxSize.x, mmi->ptMaxSize.y,
-                mmi->ptMaxPosition.x, mmi->ptMaxPosition.y,
-                mmi->ptMinTrackSize.x, mmi->ptMinTrackSize.y,
-                mmi->ptMaxTrackSize.x, mmi->ptMaxTrackSize.y);
-            */
-            return -1;
+                mmi->ptMaxSize.x, mmi->ptMaxSize.y, mmi->ptMaxPosition.x, mmi->ptMaxPosition.y,
+                mmi->ptMinTrackSize.x, mmi->ptMinTrackSize.y, mmi->ptMaxTrackSize.x, mmi->ptMaxTrackSize.y);
+
+            return -1; // message ignored
+            return 0; // message processed by application
         }
 
         case WM_NCCALCSIZE: {
@@ -1465,7 +1622,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             if (method == 1) {
 
                 int res = SetDIBits(gdcMem, gBitmap, 0, FB_HEIGHT, (void *)pframebuf, &bmi, DIB_RGB_COLORS);
-                if (debug) printf("         SetDIBits=%d\n", res);
+                if (debug > 1) printf("         SetDIBits=%d\n", res);
 
                 // Copy image from temp HDC to window
                 BitBlt(hdc, // Destination
@@ -1510,7 +1667,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                     &bmi,		// lpbmi	A pointer to a BITMAPINFO structure that contains information about the DIB.
                     DIB_RGB_COLORS	// ColorUse
                 );
-                if (debug) printf("         SetDIBitsToDevice=%d\n", res);
+                if (debug > 1) printf("         SetDIBitsToDevice=%d\n", res);
 
             }
 
@@ -1555,27 +1712,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         }
 
-        case WM_ENTERSIZEMOVE: {
-            static int cnt;
-            if (debug) printf("WM_ENTERSIZEMOVE %d swap=%d\n", cnt++, SwapBuffers(GetDC(hWnd)));
-            is_moving = 1;
-            SendMessage(hWnd, WM_SETREDRAW, false, 0);
-            break;
-        }
-
-        case WM_EXITSIZEMOVE: {
-            static int cnt;
-            if (debug) printf("WM_EXITSIZEMOVE %d swap=%d\n", cnt++, SwapBuffers(GetDC(hWnd)));
-
-            RECT rect;
-            GetClientRect(hWnd, &rect);
-            InvalidateRect(hWnd, &rect, false);
-
-            SendMessage(hWnd, WM_SETREDRAW, true, 0);
-            is_moving = 0;
-            break;
-        }
-
         case WM_NCHITTEST: {
             static int cnt;
             if (debug) printf("WM_NCHITTEST %d at %u,%u is_moving=%d\n", cnt++,
@@ -1613,6 +1749,27 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         }
 
+        case WM_ENTERSIZEMOVE: {
+            static int cnt;
+            if (debug) printf("WM_ENTERSIZEMOVE %d swap=%d\n", cnt++, SwapBuffers(GetDC(hWnd)));
+            is_moving = 1;
+            SendMessage(hWnd, WM_SETREDRAW, false, 0);
+            break;
+        }
+
+        case WM_EXITSIZEMOVE: {
+            static int cnt;
+            if (debug) printf("WM_EXITSIZEMOVE %d swap=%d\n", cnt++, SwapBuffers(GetDC(hWnd)));
+
+            RECT rect;
+            GetClientRect(hWnd, &rect);
+            InvalidateRect(hWnd, &rect, false);
+
+            SendMessage(hWnd, WM_SETREDRAW, true, 0);
+            is_moving = 0;
+            break;
+        }
+
         case WM_MOVE:
         case WM_SIZE: {
             static int cnt;
@@ -1635,24 +1792,74 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         }
 
-        case WM_LBUTTONDOWN: {
-            // Restrict the mouse cursor to the client area.
-            // This ensures that the window receives a matching WM_LBUTTONUP message.
-            ClipCursor(&rcClient);
-            POINT pt; // x and y coordinates of cursor
-            pt.x = (LONG) LOWORD(lParam);
-            pt.y = (LONG) HIWORD(lParam);
-            if (debug) printf("WM_LBUTTONDOWN pt=%ld,%ld\n", pt.x, pt.y);
+        case WM_MOUSEMOVE: {
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug > 1) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+            int key = Key::MouseMove | (x & 2047) << 9 | (y & 2047) << 20;
+            getkey_q.put(key);
             return 0;
         }
+        case WM_MOUSEWHEEL: {
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int delta = int(wParam) >> 16;
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x delta=%d xy=%d,%d\n",
+                debWin_msg(uMsg), state, delta, x, y);
 
+            int key = (x & 2047) << 9 | (y & 2047) << 20;
+            if (delta < 0) { getkey_q.put(Key::MousePgDn | key); getkey_q.put(Key::MouseRelPgDn | key); }
+            else { getkey_q.put(Key::MousePgUp | key); getkey_q.put(Key::MouseRelPgUp | key); }
+            return 0;
+        }
+        case WM_LBUTTONDBLCLK:
+        case WM_RBUTTONDBLCLK:
+        case WM_MBUTTONDBLCLK:
+        case WM_XBUTTONDBLCLK:
+        case WM_XBUTTONDOWN:
+        case WM_MBUTTONDOWN:
+        case WM_RBUTTONDOWN:
+        case WM_LBUTTONDOWN: {
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+
+            int key = uMsg == WM_LBUTTONDOWN ? Key::MouseLeft :
+                    uMsg == WM_MBUTTONDOWN ? Key::MouseMiddle :
+                    uMsg == WM_RBUTTONDOWN ? Key::MouseRight :
+                    uMsg == WM_XBUTTONDOWN ? Key::MouseX1 : 0;
+            if (!key) key = state == 1 ? Key::MouseLeft :
+                    state == 2 ? Key::MouseRight :
+                    state == 0x10 ? Key::MouseMiddle : 0;
+            if (key) getkey_q.put(key | (x & 2047) << 9 | (y & 2047) << 20);
+
+            // Restrict the mouse cursor to the client area.
+            // This ensures that the window receives a matching WM_LBUTTONUP message.
+            if (state) ClipCursor(&rcClient);
+            return 0;
+        }
+        case WM_XBUTTONUP:
+        case WM_MBUTTONUP:
+        case WM_RBUTTONUP:
         case WM_LBUTTONUP: {
-            POINT pt; // x and y coordinates of cursor
-            pt.x = (LONG) LOWORD(lParam);
-            pt.y = (LONG) HIWORD(lParam);
-            if (debug) printf("WM_LBUTTONUP pt=%ld,%ld\n", pt.x, pt.y);
+            int state = GET_KEYSTATE_WPARAM(wParam);
+            int button = GET_XBUTTON_WPARAM(wParam);
+            int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
+            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
+                debWin_msg(uMsg), state, button, x, y);
+
+            int key = uMsg == WM_LBUTTONUP ? Key::MouseRelLeft :
+                    uMsg == WM_MBUTTONUP ? Key::MouseRelMiddle :
+                    uMsg == WM_RBUTTONUP ? Key::MouseRelRight :
+                    uMsg == WM_XBUTTONUP ? Key::MouseRelX1 : 0;
+            if (key) getkey_q.put(key | (x & 2047) << 9 | (y & 2047) << 20);
+
             // Release the mouse cursor
-            ClipCursor(NULL);
+            if (!state) ClipCursor(NULL);
             return 0;
         }
 
@@ -1676,7 +1883,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             if (debug) { printf("keyboardState:"); for (int i = 0; i < 256; i++) if (keyboardState[i]&128) printf(" %d", i); printf("\n"); }
 
             wchar_t unicode[32] = {};
-            int ulen = ToUnicode(vk, scan, keyboardState, unicode, ARRAYSIZE(unicode), 0);
+            int ulen = ToUnicode(vk, scan, keyboardState, unicode, ARRAY_SIZE(unicode), 0);
             if (debug) printf("ToUnicode() len=%d unicode=%x %x %x\n", ulen, unicode[0], unicode[1], unicode[2]);
 
             WORD ascii = 0;
@@ -1695,7 +1902,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                         {Key::ShiftL,VK_SHIFT}, {Key::ShiftR,VK_RSHIFT}, {Key::ControlL,VK_CONTROL}, {Key::WinL,224/*VK_LWIN*/}, {Key::AltL,VK_MENU}, {Key::AltR,VK_RMENU}, {Key::Menu,VK_APPS}, {Key::ControlR,VK_RCONTROL},
                         {Key::Home,VK_HOME}, {Key::Left,VK_LEFT}, {Key::Up,VK_UP}, {Key::Right,VK_RIGHT}, {Key::Down,VK_DOWN}, {Key::PgUp,VK_PRIOR}, {Key::PgDn,VK_NEXT}, {Key::End,VK_END},
                     };
-                    for (size_t i = 0; i < ARRAYSIZE(keymapVK); i++) {
+                    for (size_t i = 0; i < ARRAY_SIZE(keymapVK); i++) {
                         if (vk == keymapVK[i].vk) {
                             key = keymapVK[i].key;
                             break;
@@ -1795,7 +2002,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             return 0;
         }
 
-        case WM_MOUSEFIRST:
         case WM_NCMOUSEMOVE:
         case WM_SETCURSOR:
             break;
@@ -1851,12 +2057,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     }
 
     {
-        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+        /*
+        DWORD dwStyle = GetWindowLongPtr(hWnd, GWL_STYLE);
+        DWORD dwExStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+        HMENU menu = GetMenu(hWnd);
+        */
+        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
         DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
         RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
         if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
-            if (debug) printf("AdjustWindowRectEx() failed rect = { %ld, %ld, %ld, %ld  }\n",
+            if (debug) printf("AdjustWindowRectEx() FAILED rect = { %ld, %ld, %ld, %ld  }\n",
                 clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
             clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
         } else {
@@ -1883,6 +2094,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
             return 1;
         }
+
+        SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
 
         // Make window semi-transparent, and mask out background color
         //SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 128, LWA_ALPHA | LWA_COLORKEY);

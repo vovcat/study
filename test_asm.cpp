@@ -1,5 +1,5 @@
-// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp && ./a.out
-// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp && ods -Mintel ./a.out
+// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm && ./test_asm
+// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm && ods -Mintel ./test_asm
 // g++ -g0 -O0 -Wall -Wextra -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -fno-dwarf2-cfi-asm -fno-pic -fno-inline -fverbose-asm -S test_asm.cpp && v test_asm.s
 // (g++ -g0 -O0 -Wall -Wextra -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -fno-dwarf2-cfi-asm -fno-pic -fno-inline -fverbose-asm -Wa,-alhsdn=/dev/stdout test_asm.cpp && ./a.out) |v
 
