@@ -11,6 +11,10 @@
 #include <string>
 #include <chrono>
 
+#define THIS_CLASSNAME "VirtualMachine"
+#define THIS_RESNAME "virtualmachine"
+#define THIS_TITLE "Virtual Machine"
+
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 #endif
@@ -230,7 +234,7 @@ int main(int argc, char *argv[])
 
     /* WINDOW PART */
 
-    XSetWindowAttributes wattr;
+    XSetWindowAttributes wattr = {};
     wattr.background_pixel = XBlackPixel(display, XDefaultScreen(display));
     wattr.bit_gravity = NorthWestGravity;
     wattr.win_gravity = NorthWestGravity;
@@ -262,19 +266,19 @@ int main(int argc, char *argv[])
 
     // This function has been superseded by XSetWMProperties()
     // XSetStandardProperties(display, w, window_name, icon_name, icon_pixmap, argv, argc, hints)
-    const char *name = "Test X11";
+    const char *name = THIS_TITLE;
     XSetStandardProperties(display, win, name, name/*icon_name*/, None/*icon_pixmap*/, argv, argc, &size_hints);
 
-    XWMHints wm_hints;
+    XWMHints wm_hints = {};
     wm_hints.flags = InputHint | StateHint;
     wm_hints.input = True;
     wm_hints.initial_state = NormalState;
 
-    XClassHint class_hints;
-    class_hints.res_name = (char *) "testx";
-    class_hints.res_class = (char *) "TestX";
+    XClassHint class_hints = {};
+    class_hints.res_name = (char *) THIS_RESNAME;
+    class_hints.res_class = (char *) THIS_CLASSNAME;
 
-    unsigned char name_uc[] = "TestX11";
+    unsigned char name_uc[] = THIS_TITLE;
     XTextProperty name_prop = { name_uc, XA_STRING, 8, strlen((char *) name_uc) };
     XSetWMProperties(display, win, &name_prop, &name_prop, argv, argc, &size_hints, &wm_hints, &class_hints);
 
@@ -532,9 +536,6 @@ int main(int argc, char *argv[])
 
 #elif defined(WIN32)
 
-#define THIS_CLASSNAME TEXT("VirtualMachine")
-#define THIS_TITLE TEXT("Virtual Machine")
-
 #define IDT_TIMER1 0x14001101
 #define IDT_TIMER2 0x14001102
 
@@ -595,7 +596,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             return 0;
         }
         case WM_CLOSE: {
-            if (MessageBox(hWnd, "Really quit?", THIS_CLASSNAME, MB_OKCANCEL) != IDOK) {
+            if (MessageBox(hWnd, "Really quit?", TEXT(THIS_TITLE), MB_OKCANCEL) != IDOK) {
                 // User canceled. Do nothing.
                 return 0;
             }
@@ -811,7 +812,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     if (strstr(lpCmdLine, "-c")) nloops = 100;
     if (strstr(lpCmdLine, "-k")) nloops = 1000;
 
-    if ((hPrev = FindWindow(THIS_CLASSNAME, THIS_TITLE)) != 0)  {
+    if ((hPrev = FindWindow(TEXT(THIS_CLASSNAME), TEXT(THIS_TITLE))) != 0)  {
         MessageBox(NULL, TEXT("Previous instance alredy running!"), TEXT("Warning"), MB_OK);
         return 0;
     }
@@ -829,7 +830,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         wclx.hbrBackground  = NULL;
         wclx.hbrBackground  = CreateSolidBrush(0x333333);
         wclx.lpszMenuName   = NULL;
-        wclx.lpszClassName  = THIS_CLASSNAME;
+        wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
         RegisterClassEx(&wclx);
     }
 
@@ -844,8 +845,8 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 
         HWND hWnd = gWnd = CreateWindowEx(
             dwExStyle,		// Extended possibilites for variation
-            THIS_CLASSNAME,     // Classname
-            THIS_TITLE,		// Title Text
+            TEXT(THIS_CLASSNAME), // Classname
+            TEXT(THIS_TITLE),	// Title Text
             dwStyle,		// default window
             CW_USEDEFAULT,      // Windows decides the position
             CW_USEDEFAULT,      // Where the window ends up on the screen
@@ -899,7 +900,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             }
         }
 
-        UnregisterClass(THIS_CLASSNAME, hInstance);
+        UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
         return msg.wParam;
     }
 }
