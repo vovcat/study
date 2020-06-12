@@ -84,6 +84,11 @@ asm volatile (R"(
 )");
 #endif
 
+void asm_main_call(void)
+{
+    asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+}
+
 
 //
 // MAIN: linux
@@ -400,7 +405,7 @@ int main(int argc, char *argv[])
     XSync(display, false);
 
     // Start asm thread
-    std::thread gThread(asm_main);
+    std::thread gThread(asm_main_text);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -547,8 +552,6 @@ int main(int argc, char *argv[])
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #endif
 
-#include "debWin.cpp"
-
 HWND gWnd = 0;
 HANDLE gThread = 0;
 static BOOL gModalState = false; // Is messagebox shown
@@ -641,21 +644,14 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
 
         case WM_MOUSEMOVE: {
-            int state = GET_KEYSTATE_WPARAM(wParam);
-            int button = GET_XBUTTON_WPARAM(wParam);
             int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
-            if (debug > 1) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
-                debWin_msg(uMsg), state, button, x, y);
             int key = Key::MouseMove | (x & 2047) << 9 | (y & 2047) << 20;
             getkey_q.put(key);
             return 0;
         }
         case WM_MOUSEWHEEL: {
-            int state = GET_KEYSTATE_WPARAM(wParam);
             int delta = int(wParam) >> 16;
             int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
-            if (debug) printf("%s state=%#04x delta=%d xy=%d,%d\n",
-                debWin_msg(uMsg), state, delta, x, y);
 
             int key = (x & 2047) << 9 | (y & 2047) << 20;
             if (delta < 0) { getkey_q.put(Key::MousePgDn | key); getkey_q.put(Key::MouseRelPgDn | key); }
@@ -671,10 +667,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_RBUTTONDOWN:
         case WM_LBUTTONDOWN: {
             int state = GET_KEYSTATE_WPARAM(wParam);
-            int button = GET_XBUTTON_WPARAM(wParam);
             int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
-            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
-                debWin_msg(uMsg), state, button, x, y);
 
             int key = uMsg == WM_LBUTTONDOWN ? Key::MouseLeft :
                     uMsg == WM_MBUTTONDOWN ? Key::MouseMiddle :
@@ -695,10 +688,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_RBUTTONUP:
         case WM_LBUTTONUP: {
             int state = GET_KEYSTATE_WPARAM(wParam);
-            int button = GET_XBUTTON_WPARAM(wParam);
             int x = GET_X_LPARAM(lParam), y = GET_Y_LPARAM(lParam);
-            if (debug) printf("%s state=%#04x button=%#04x xy=%d,%d\n",
-                debWin_msg(uMsg), state, button, x, y);
 
             int key = uMsg == WM_LBUTTONUP ? Key::MouseRelLeft :
                     uMsg == WM_MBUTTONUP ? Key::MouseRelMiddle :

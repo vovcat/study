@@ -147,9 +147,10 @@ const char *KeyName(int key) {
     int len;
 
     key &= 511;
-    if (!key) return "Nokey";
+    if (key < 1)
+        return "Nokey";
     if (key < 32)
-        len = sprintf(bufp, "^%c", key);
+        len = sprintf(bufp, "^%c", key + '@');
     else if (key < 256)
         len = sprintf(bufp, "'%c'", key);
     else {
@@ -171,30 +172,61 @@ framebuf_t *pframebuf = &framebuf;
 
 int getkey(int wait)
 {
+    static int ncalls = 0;
+    const auto min = std::chrono::high_resolution_clock::time_point::min();
+    static auto firstcall = min;
+
+    if (firstcall == min) firstcall = std::chrono::high_resolution_clock::now();
+    ncalls++;
+
     //extern HWND gWnd;
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
 
-    usleep(keydelay);
-    /*
+    /* windows: 1ms resolution
     struct timespec req = {}, rem = {};
     req.tv_sec = keydelay / 1000000;
     req.tv_nsec = (keydelay % 1000000) * 1000;
     nanosleep(&req, &rem);
     */
-    /*
+    /* windows: 1ms resolution
     struct timeval tv;
     tv.tv_sec = keydelay / 1000000;
     tv.tv_usec = keydelay % 1000000;
     select(0, NULL, NULL, NULL, &tv);
     */
+    /* windows: 1ms resolution
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * keydelay; // Convert to 100 nanosecond interval, negative value indicates relative time
+    HANDLE timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    CloseHandle(timer);
+    */
+
+    usleep(keydelay); // windows: 1ms resolution
     if (!wait && getkey_q.size() == 0) return 0;
+
     auto key = getkey_q.get();
-    printf("key=%s %08x\n", KeyName(key), key);
+    std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - firstcall;
+    printf("=== key=%s %08x (%d calls in %.2fs = %.2f calls/s = %.2fus/call)\n", KeyName(key), key,
+        ncalls, ti.count() / 1e6, 1e6 * ncalls / ti.count(), ti.count() / ncalls);
     return key;
+
     return getkey_q.get();
 }
 
 #ifdef WIN32
+int usleep2(useconds_t usec)
+{
+    static HANDLE timer = NULL;
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
+    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    return 0;
+}
+
 asm volatile (R"(
     # export to test_wx_asm.cpp
     pframebuf = _pframebuf

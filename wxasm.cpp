@@ -156,10 +156,11 @@ void Xasm_main(void)
     }
 }
 
-void asm_main_text()
+void asm_main_text(void)
 {
     asm volatile (R"(
         {.intel_syntax noprefix | }
+        call asm_main
         jmp asm_exit
 
         .section data1, "awx"
@@ -189,7 +190,9 @@ i_:
         .zero	8
 
         .align 8
-        .space	8
+        .space	8, 0xff
+        #.space size, fill # This directive emits size bytes, each of value fill. Both size and fill are absolute expressions. If the comma and fill are omitted, fill is assumed to be zero. This is the same as `.skip'.
+        #.skip size, fill # This directive emits size bytes, each of value fill. Both size and fill are absolute expressions. If the comma and fill are omitted, fill is assumed to be zero. This is the same as `.space'.
 
 # void seed(void)
 # inputs: none  (modifies PRN seed variable)
@@ -263,9 +266,5 @@ nextpix:
         .text
 asm_exit:
         {.att_syntax noprefix | }
-)"
-        : /*out*/ //[i] "+m" (i), [ip] "+p" (i), [j] "+m" (j)
-        : /*in*/  //[i] "a" (&i), [j] "b" (&j)
-        : /*clobber*/ "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory"
-    );
+)" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
 }

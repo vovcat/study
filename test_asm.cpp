@@ -106,14 +106,14 @@ abs0:	mov eax, offset abs1
 
 asm_end:
 
-        .section absolute, "wx"
-        .org 0x1000000
+        .section absolute, "wxa"
+        .org 0x100000
 abs1:
 #	.string "section absolute1"
-        .org 0x1001100
+        .org 0x101100
 abs2:
 #	.string "section absolute2"
-        .org 0x1001200
+        .org 0x101200
 abs3:
 
 .text
