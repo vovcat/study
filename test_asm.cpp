@@ -27,6 +27,7 @@ extern "C" int func2(
     return x+y+a+b+1234; // eax		rax		rax
 }
 
+int iv;
 const char *p;
 
 extern void asm_main_text()
@@ -84,6 +85,13 @@ func1:				# int func1(char c, int idx) { int a, b; ....; return ax; }
         mov [t1+ebx], al
         mov eax, offset t1
         mov [p], eax
+
+        mov ecx, 130000
+        mov eax, 1
+1:	inc eax
+        loop 1b
+        mov [iv], eax
+
         pop eax
         pop ax
 
@@ -140,7 +148,7 @@ int main()
     //asm_main(); // it doesn't save ebx
     asm volatile ("call asm_main" ::: /*clobber*/ "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
 
-    printf("=== p=%s\n", p);
+    printf("=== p=%s iv=%d\n", p, iv);
     printf("=== asm_start=%p asm_end=%p size=%d\n", asm_start, asm_end, asm_end-asm_start);
 
     void *ptr = mmap((void*)0x1000000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_LOCKED|MAP_POPULATE, -1, 0);

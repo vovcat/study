@@ -228,7 +228,7 @@ rand:
         mov	[seed], eax		# Update seed = return value
         ret
 
-        .global	_asm_main
+        .global	asm_main
 asm_main:
         push	ebp
         mov	ebp, esp
