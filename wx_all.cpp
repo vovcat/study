@@ -1079,6 +1079,14 @@ int main(int argc, char *argv[])
                     }
                 }
 
+                if (1) {
+                    char keys[32] = {};
+                    int resqk = XQueryKeymap(display, keys);
+                    printf("XQueryKeymap() = %d:", resqk);
+                    for (size_t i = 0; i < sizeof(keys); i++) printf(" %02x", keys[i]);
+                    printf("\n");
+                }
+
                 if (nbytes == 1 && str[0] < ' ') {
                     str[1] = str[0] + '@';
                     str[0] = '^';
