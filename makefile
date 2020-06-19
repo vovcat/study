@@ -1,5 +1,5 @@
-all: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
-all+: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
+all: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm asm1 asm1.exe
+all+: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm asm1 asm1.exe
 
 cvq_lin: cvq_lin.cpp
 	g++ -g -O0 -Wall -Wextra cvq_lin.cpp -o cvq_lin -lpthread && ./cvq_lin
@@ -15,6 +15,10 @@ wx: wx.cpp wxasm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp -o wx -lX11 -lXext -lpthread #&& ./wx
 wx.exe: wx.cpp wxasm.cpp
 	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp -o wx.exe -lgdi32 -lws2_32 #&& wine ./wx.exe
+asm1: wx.cpp asm1.cpp
+	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp -o asm1 -lX11 -lXext -lpthread #&& ./wx
+asm1.exe: wx.cpp asm1.cpp
+	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp -o asm1.exe -lgdi32 -lws2_32 #&& wine ./wx.exe
 test_asm: test_asm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm #&& ./test_asm
 dw:
@@ -22,4 +26,4 @@ dw:
 g:
 	egrep -r $(S) /usr/share/mingw-w64/include/ /usr/i686-w64-mingw32/include/ /usr/lib/gcc/i686-w64-mingw32/*/include*
 clean:
-	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
+	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm asm1 asm1.exe

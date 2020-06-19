@@ -21,7 +21,7 @@
 
 // asm
 
-#include "wxasm.cpp"
+#include "asm1.cpp"
 
 // getkey()
 
