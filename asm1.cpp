@@ -120,53 +120,40 @@ asm_main:
 PutPic16x24:
     add edi, [pframebuf]
     mov esi, offset pic
-    mov ebx, 0
-for1:
-    cmp ebx, 24
-    jae end1
-        call PutLine16
-        add edi, (800 - 16)*4
-    inc ebx
-    jmp for1
-end1:
+    mov ecx, 24
+1:
+    call PutLine16
+    add edi, (800 - 16)*4
+    loop 1b
     ret
 
 PutLine16:
-        xor ecx, ecx
-  for2:
-        cmp ecx, 16
-        jae end2
-
-          mov eax, [esi]
-          mov [edi], eax
-          add esi, 4
-          add edi, 4
-
-        inc ecx
-        jmp for2
-  end2:
-        ret
+    push ecx
+    mov ecx, 16
+    rep movsd [edi], [esi]
+    pop ecx
+    ret
 
 endpic:
         mov eax, [pframebuf]
         mov ebx, 0xffff00
-        mov dword ptr [eax+ (800*300+400)*4], 0xff00
-        mov [eax+ (800*300+400)*4 + 4], ebx
-        mov [eax+ (800*300+400)*4 + 4*2], ebx
-        mov [eax+ (800*300+400)*4 + 4*3], ebx
-        mov [eax+ (800*300+400)*4 + 4*4], ebx
-        mov [eax+ (800*300+400)*4 - 4], ebx
-        mov [eax+ (800*300+400)*4 - 4*2], ebx
-        mov [eax+ (800*300+400)*4 - 4*3], ebx
-        mov [eax+ (800*300+400)*4 - 4*4], ebx
-        mov [eax+ (800*300+400)*4 + 800*4], ebx
-        mov [eax+ (800*300+400)*4 + 800*4*2], ebx
-        mov [eax+ (800*300+400)*4 + 800*4*3], ebx
-        mov [eax+ (800*300+400)*4 + 800*4*4], ebx
-        mov [eax+ (800*300+400)*4 - 800*4], ebx
-        mov [eax+ (800*300+400)*4 - 800*4*2], ebx
-        mov [eax+ (800*300+400)*4 - 800*4*3], ebx
-        mov [eax+ (800*300+400)*4 - 800*4*4], ebx
+        mov dword ptr [eax + (800*300+400)*4], 0xff00
+        mov [eax + (800*300+400)*4 + 4], ebx
+        mov [eax + (800*300+400)*4 + 4*2], ebx
+        mov [eax + (800*300+400)*4 + 4*3], ebx
+        mov [eax + (800*300+400)*4 + 4*4], ebx
+        mov [eax + (800*300+400)*4 - 4], ebx
+        mov [eax + (800*300+400)*4 - 4*2], ebx
+        mov [eax + (800*300+400)*4 - 4*3], ebx
+        mov [eax + (800*300+400)*4 - 4*4], ebx
+        mov [eax + (800*300+400)*4 + 800*4], ebx
+        mov [eax + (800*300+400)*4 + 800*4*2], ebx
+        mov [eax + (800*300+400)*4 + 800*4*3], ebx
+        mov [eax + (800*300+400)*4 + 800*4*4], ebx
+        mov [eax + (800*300+400)*4 - 800*4], ebx
+        mov [eax + (800*300+400)*4 - 800*4*2], ebx
+        mov [eax + (800*300+400)*4 - 800*4*3], ebx
+        mov [eax + (800*300+400)*4 - 800*4*4], ebx
         ret
 
         .text
