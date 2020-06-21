@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <algorithm>
+
 struct Key {
     enum KeyEnum : int {
         Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
@@ -39,7 +42,7 @@ extern "C" {
     // |1|09876543210|98765432109|876543210|   number
     // |-|     y     |     x     |   key   | = field
     int getkey(int wait);
-    void asm_main(void);
+    void asm_main_text(void);
 }
 
 void rotl(unsigned &x, int width, int n)
@@ -116,7 +119,7 @@ void draw_cbox(unsigned color)
     }
 }
 
-void Xasm_main(void)
+void Xasm_main_text(void)
 {
     unsigned color = 0x00000ff;
     int mousedown = 0;

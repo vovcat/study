@@ -43,7 +43,51 @@ X11:
 
 // asm
 
-#include "wxasm.cpp"
+struct Key {
+    enum KeyEnum : int {
+        Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
+        Space = 0x20, At = 0x40, A = 0x41, Z = 0x5a, a = 0x61, z = 0x7a,
+        Nil = 0x100, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+        ScrollLock = 0x110, Pause, Ins, Del, CapsLock,
+        ShiftL = 0x120, ShiftR, ControlL, WinL, AltL, AltR, WinR, Menu, ControlR,
+        Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
+        MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
+        /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
+        MAX = 0x1ff, SIZE = 0x200
+    };
+    enum StateEnum : int {
+        StateShift =		0x01,
+        StateCapsLock =		0x02,
+        StateControl =		0x04,
+        StateAlt =		0x08,
+        StateMod2 =		0x10,
+        StateMod3 =		0x20,
+        StateMod4 =		0x40,
+        StateWin =		0x80,
+        StateMouseLeft =	0x100,
+        StateMouseMiddle =	0x200,
+        StateMouseRight =	0x400,
+        StateMousePgUp =	0x800,
+        StateMousePgDn =	0x1000,
+        StateLang1 =		0x2000,
+        StateLang2 =		0x4000,
+    };
+};
+
+extern "C" {
+    const int FB_WIDTH = 800, FB_HEIGHT = 600, FB_STRIDE = FB_WIDTH * sizeof(unsigned);
+    typedef unsigned int framebuf_t[FB_HEIGHT][FB_WIDTH];
+    extern framebuf_t *pframebuf;
+    //     _________   _________   _______
+    // | |/   11    \ /   11    \ /   9   \  = size
+    // |3|3         2|1        10|0       0| = bit-
+    // |1|09876543210|98765432109|876543210|   number
+    // |-|     y     |     x     |   key   | = field
+    int getkey(int wait);
+    void asm_main_text(void);
+}
+
+//#include "wxasm.cpp"
 
 // getkey()
 
@@ -214,27 +258,6 @@ int getkey(int wait)
 
     return getkey_q.get();
 }
-
-#ifdef WIN32
-int usleep2(useconds_t usec)
-{
-    static HANDLE timer = NULL;
-    LARGE_INTEGER ft;
-    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
-    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
-    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
-    WaitForSingleObject(timer, INFINITE);
-    return 0;
-}
-
-asm volatile (R"(
-    # export to test_wx_asm.cpp
-    pframebuf = _pframebuf
-    getkey = _getkey
-    # import from test_wx_asm.cpp
-    _asm_main = asm_main
-)");
-#endif
 
 
 //
@@ -993,7 +1016,7 @@ int main(int argc, char *argv[])
     }
 
     // Start asm thread
-    std::thread gThread(asm_main);
+    std::thread gThread(asm_main_text);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -1282,9 +1305,20 @@ int method = 1; // 1 - CreateCompatibleBitmap/SetDIBits, 2 - CreateDIBSection, 3
 int nredraws = 0;
 int start = 20;
 
+asm volatile (R"(
+    # export to wxasm.cpp
+    .global pframebuf
+    .global getkey
+    pframebuf = _pframebuf
+    getkey = _getkey
+    # import from wxasm.cpp
+    .global _asm_main
+    _asm_main = asm_main
+)");
+
 DWORD WINAPI asm_main_win32(void *)
 {
-    asm_main();
+    asm_main_text();
     return 0;
 }
 
