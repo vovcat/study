@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <algorithm>
+
 struct Key {
     enum KeyEnum : int {
         Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
@@ -38,8 +41,9 @@ extern "C" {
     // |3|3         2|1        10|0       0| = bit-
     // |1|09876543210|98765432109|876543210|   number
     // |-|     y     |     x     |   key   | = field
-    int getkey(int wait);
-    void asm_main(void);
+    int getkey(void);
+    int waitkey(void);
+    void asm_main_text(void);
 }
 
 void rotl(unsigned &x, int width, int n)
@@ -116,7 +120,7 @@ void draw_cbox(unsigned color)
     }
 }
 
-void Xasm_main(void)
+void Xasm_main_text(void)
 {
     unsigned color = 0x00000ff;
     int mousedown = 0;
@@ -129,7 +133,7 @@ void Xasm_main(void)
         if (x > 0         ) { pframebuf[0][y][x-1] = color; }
                             { pframebuf[0][y][x] = color; }
 
-        if (int key = getkey(0)) {
+        if (int key = getkey()) {
             if ((key & 511) == 'p') {
                 draw_box((char *)pframebuf);
             } else if ((key & 511) == 'l') {
@@ -162,13 +166,13 @@ void asm_main_text(void)
         {.intel_syntax noprefix | }
         call asm_main
         jmp asm_exit
-
         .section data1, "awx"
-        .align 0x1000
+        .global	asm_main
+        .align 0x100
 asm_start:
 
-        .align 16
 
+        .align 16
 t1:	.string	"string here\n"
 t2:     .ascii	"ascii here\n"
 t3:     .asciz	"asciz here\n"
@@ -177,14 +181,14 @@ t_:
 b1:	.byte	123
 b_:
         .align 2
-w1:	.short	0x234
+w1:     .short	0x234
 w2:     .word	0235
 w3:     .hword	0b00010001
 w4:     .value	237
 w_:
         .align 4
-i1:	.int	345
-i2:	.long	345
+i1:     .int	345
+i2:     .long	345
 i_:
         .align 8
         .zero	8
@@ -195,8 +199,9 @@ i_:
         #.skip size, fill # This directive emits size bytes, each of value fill. Both size and fill are absolute expressions. If the comma and fill are omitted, fill is assumed to be zero. This is the same as `.space'.
 
 # void seed(void)
-# inputs: none  (modifies PRN seed variable)
-# clobbers: eax  returns: AX = next random number
+# inputs: none (modifies PRN seed variable)
+# outputs: none
+# clobbers: eax
 seed:	.int	.
 srand:
         xor	eax, [seed]
@@ -212,23 +217,25 @@ srand:
         ret
 
 # int rand(void)
-# returns eax = next random number
+# inputs: none (modifies PRN seed variable)
+# outputs: eax = next random number
+# clobbers: eax
 rand2:
-        mov     eax, 0xadb4a92d		# LCG Multiplier
-        mul     dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        mov	eax, 0xadb4a92d		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
         add	eax, 0xa13fc965		# Add LCG increment value
         shrd	eax, edx, 19
         mov	[seed], eax		# Update seed = return value
         ret
 rand:
-        mov     eax, 0x1010101		# LCG Multiplier
-        mul     dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        mov	eax, 0x1010101		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
         add	eax, 0x31415927		# Add LCG increment value
         shrd	eax, edx, 16
         mov	[seed], eax		# Update seed = return value
         ret
 
-        .global	_asm_main
+
 asm_main:
         push	ebp
         mov	ebp, esp
@@ -254,9 +261,7 @@ nextpix:
         mov	eax, 0xff1133		# color
         mov	[esi+ebx*4], eax
 
-        push	0
         call	getkey
-        add	sp, 4			# pop
         jmp	nextpix
 
         mov	esp, ebp
@@ -266,5 +271,5 @@ nextpix:
         .text
 asm_exit:
         {.att_syntax noprefix | }
-)" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    )" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
 }

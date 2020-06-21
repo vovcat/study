@@ -40,10 +40,11 @@ extern "C" {
     // |-|     y     |     x     |   key   | = field
     int getkey(int wait);
     void asm_main(void);
+    void asm_main_text(void);
 }
 
 
-void asm_main_text()
+void asm_main_text(void)
 {
     asm volatile (R"(
         {.intel_syntax noprefix | }

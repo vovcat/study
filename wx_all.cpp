@@ -43,7 +43,52 @@ X11:
 
 // asm
 
-#include "wxasm.cpp"
+struct Key {
+    enum KeyEnum : int {
+        Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
+        Space = 0x20, At = 0x40, A = 0x41, Z = 0x5a, a = 0x61, z = 0x7a,
+        Nil = 0x100, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+        ScrollLock = 0x110, Pause, Ins, Del, CapsLock,
+        ShiftL = 0x120, ShiftR, ControlL, WinL, AltL, AltR, WinR, Menu, ControlR,
+        Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
+        MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
+        /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
+        MAX = 0x1ff, SIZE = 0x200
+    };
+    enum StateEnum : int {
+        StateShift =		0x01,
+        StateCapsLock =		0x02,
+        StateControl =		0x04,
+        StateAlt =		0x08,
+        StateMod2 =		0x10,
+        StateMod3 =		0x20,
+        StateMod4 =		0x40,
+        StateWin =		0x80,
+        StateMouseLeft =	0x100,
+        StateMouseMiddle =	0x200,
+        StateMouseRight =	0x400,
+        StateMousePgUp =	0x800,
+        StateMousePgDn =	0x1000,
+        StateLang1 =		0x2000,
+        StateLang2 =		0x4000,
+    };
+};
+
+extern "C" {
+    const int FB_WIDTH = 800, FB_HEIGHT = 600, FB_STRIDE = FB_WIDTH * sizeof(unsigned);
+    typedef unsigned int framebuf_t[FB_HEIGHT][FB_WIDTH];
+    extern framebuf_t *pframebuf;
+    //     _________   _________   _______
+    // | |/   11    \ /   11    \ /   9   \  = size
+    // |3|3         2|1        10|0       0| = bit-
+    // |1|09876543210|98765432109|876543210|   number
+    // |-|     y     |     x     |   key   | = field
+    int getkey(void);
+    int waitkey(void);
+    void asm_main_text(void);
+}
+
+//#include "wxasm.cpp"
 
 // getkey()
 
@@ -62,8 +107,13 @@ template<typename T> struct cqueue
     typedef std::unique_lock<std::mutex> lock_t;
     size_t size() const { lock_t l(m); return q.size(); }
     T get() { lock_t l(m); while (q.empty()) cv.wait(l); T r = q.front(); q.pop(); return r; }
-    void put(const T &v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
+    void put(const T v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
 };
+
+void getkey_stop_thread(void)
+{
+    pthread_exit(NULL);
+}
 
 #elif defined(WIN32)
 
@@ -75,11 +125,16 @@ template<typename T> struct cqueue
     std::queue<T> q;
     mutable CRITICAL_SECTION m;
     CONDITION_VARIABLE cv;
-    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
     size_t size() const { EnterCriticalSection(&m); auto sz = q.size(); LeaveCriticalSection(&m); return sz; }
     T get() { EnterCriticalSection(&m); while (q.empty()) SleepConditionVariableCS(&cv, &m, INFINITE); T r = q.front(); q.pop(); LeaveCriticalSection(&m); return r; }
-    void put(const T &v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
+
+void getkey_stop_thread(void)
+{
+    ExitThread(0);
+}
 
 #endif
 
@@ -164,13 +219,40 @@ const char *KeyName(int key) {
     return p;
 }
 
+int getkey_wait(int wait);
+
 const int keydelay = 1000;
+bool getkey_down = false;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
 framebuf_t *pframebuf = &framebuf;
 
-int getkey(int wait)
+int waitkey(void)
+{
+    if (getkey_down) { getkey_stop_thread(); return 0; }
+    return getkey_wait(1);
+    usleep(keydelay);
+    return getkey_q.get();
+}
+
+int getkey(void)
+{
+    if (getkey_down) { getkey_stop_thread(); return 0; }
+    return getkey_wait(0);
+    usleep(keydelay);
+    if (getkey_q.size() == 0) return 0;
+    return getkey_q.get();
+}
+
+void getkey_stop(void)
+{
+    getkey_down = true;
+    getkey_q.put(Key::Nokey); // wake up reader thread
+    usleep(keydelay * 2); // wait for possible usleep() there
+}
+
+int getkey_wait(int wait)
 {
     static int ncalls = 0;
     const auto min = std::chrono::high_resolution_clock::time_point::min();
@@ -211,30 +293,7 @@ int getkey(int wait)
     printf("=== key=%s %08x (%d calls in %.2fs = %.2f calls/s = %.2fus/call)\n", KeyName(key), key,
         ncalls, ti.count() / 1e6, 1e6 * ncalls / ti.count(), ti.count() / ncalls);
     return key;
-
-    return getkey_q.get();
 }
-
-#ifdef WIN32
-int usleep2(useconds_t usec)
-{
-    static HANDLE timer = NULL;
-    LARGE_INTEGER ft;
-    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
-    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
-    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
-    WaitForSingleObject(timer, INFINITE);
-    return 0;
-}
-
-asm volatile (R"(
-    # export to test_wx_asm.cpp
-    pframebuf = _pframebuf
-    getkey = _getkey
-    # import from test_wx_asm.cpp
-    _asm_main = asm_main
-)");
-#endif
 
 
 //
@@ -248,10 +307,11 @@ asm volatile (R"(
 #include <time.h> // time(), nanosleep()
 #include <locale.h> // setlocale()
 #include <pthread.h> // pthread_cancel()
+#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
 #include <sys/ipc.h> // IPC_PRIVATE, IPC_CREAT
 #include <sys/shm.h> // shmget(), shmat()
 #include <sys/time.h> // setitimer(), gettimeofday()
-#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
+#include <sys/mman.h> // mmap(), munmap()
 
 #include <X11/Xlib.h> // Display, Visual, X*
 #include <X11/Xlocale.h> // XSetLocaleModifiers(), XSupportsLocale()
@@ -385,6 +445,14 @@ void timer_stop(long)
 }
 
 // MAIN
+
+void asm_main_call(void)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
+    //return NULL;
+}
 
 int main(int argc, char *argv[])
 {
@@ -992,8 +1060,12 @@ int main(int argc, char *argv[])
         if (event.type == MapNotify) break;
     }
 
+    void *ptr = mmap((void*)0x20000000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_LOCKED|MAP_POPULATE, -1, 0);
+    printf("=== mmap=%p\n", ptr);
+    munmap(ptr, 4096);
+
     // Start asm thread
-    std::thread gThread(asm_main);
+    std::thread gThread(asm_main_call);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -1074,9 +1146,15 @@ int main(int argc, char *argv[])
                             }
                         }
                     }
-                    if (key) {
-                        getkey_q.put(key);
-                    }
+                    if (key) getkey_q.put(key);
+                }
+
+                if (1) {
+                    char keys[32] = {};
+                    int resqk = XQueryKeymap(display, keys);
+                    printf("XQueryKeymap() = %d:", resqk);
+                    for (size_t i = 0; i < sizeof(keys); i++) printf(" %02x", keys[i]);
+                    printf("\n");
                 }
 
                 if (nbytes == 1 && str[0] < ' ') {
@@ -1235,9 +1313,8 @@ int main(int argc, char *argv[])
 
     timer_stop(timer);
     pthread_cancel(gThread.native_handle());
-    //while (getkey_q.size() < 10) getkey_q.put(-1);
-    //gThread.join();
-
+    getkey_stop(); // stop reader thread
+    pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
     XDestroyWindow(display, win);
@@ -1274,9 +1351,23 @@ int method = 1; // 1 - CreateCompatibleBitmap/SetDIBits, 2 - CreateDIBSection, 3
 int nredraws = 0;
 int start = 20;
 
-DWORD WINAPI asm_main_win32(void *)
+asm volatile (R"(
+    # export to wxasm.cpp
+    .global pframebuf
+    .global waitkey
+    .global getkey
+    pframebuf = _pframebuf
+    waitkey = _waitkey
+    getkey = _getkey
+    # import from wxasm.cpp
+    .global _asm_main
+    _asm_main = asm_main
+)");
+
+DWORD WINAPI asm_main_call(void *)
 {
-    asm_main();
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
     return 0;
 }
 
@@ -1517,7 +1608,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 gThread = CreateThread(
                     NULL,                   // default security attributes
                     0,                      // use default stack size
-                    asm_main_win32,         // thread function name
+                    asm_main_call,          // thread function name
                     NULL,                   // argument to thread function
                     0,                      // use default creation flags
                     &tid                    // returns the thread identifier
@@ -2069,172 +2160,6 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     }
 
     {
-        WNDCLASSEX wclx = {};
-        wclx.cbSize         = sizeof(wclx);
-        wclx.style          = CS_HREDRAW | CS_VREDRAW;
-        wclx.lpfnWndProc    = &WndProc;
-        wclx.cbClsExtra     = 0;
-        wclx.cbWndExtra     = 0;
-        wclx.hInstance      = hInstance;
-        wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
-        //wclx.hIcon        = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_TRAYICON));
-        //wclx.hIconSm      = LoadSmallIcon(hInstance, IDI_TRAYICON);
-        wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
-        wclx.hbrBackground  = NULL;
-        //wclx.hbrBackground  = (HBRUSH) (COLOR_BTNFACE + 1);
-        //wclx.hbrBackground  = (HBRUSH) GetStockObject(BLACK_BRUSH);
-        wclx.hbrBackground  = CreateSolidBrush(0x333333);
-        wclx.lpszMenuName   = NULL;
-        wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
-        RegisterClassEx(&wclx);
-    }
-
-    {
-        /*
-        DWORD dwStyle = GetWindowLongPtr(hWnd, GWL_STYLE);
-        DWORD dwExStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
-        HMENU menu = GetMenu(hWnd);
-        */
-        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
-
-        RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-        if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
-            if (debug) printf("AdjustWindowRectEx() FAILED rect = { %ld, %ld, %ld, %ld  }\n",
-                clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
-            clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
-        } else {
-            if (debug) printf("AdjustWindowRectEx() rect = { %ld, %ld, %ld, %ld  }\n",
-                clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
-        }
-
-        HWND hWnd = gWnd = CreateWindowEx(
-            dwExStyle,		// Extended possibilites for variation
-            TEXT(THIS_CLASSNAME), // Classname
-            TEXT(THIS_TITLE),	// Title Text
-            dwStyle,		// default window
-            CW_USEDEFAULT,      // Windows decides the position
-            CW_USEDEFAULT,      // Where the window ends up on the screen
-            clientarea.right - clientarea.left, // width and
-            clientarea.bottom - clientarea.top, // height in pixels
-            HWND_DESKTOP,       // The window is a child-window to desktop
-            NULL,               // No menu
-            hInstance,          // Program Instance handler
-            NULL                // No Window Creation data
-        );
-
-        if (!hWnd) {
-            MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
-            return 1;
-        }
-
-        SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
-
-        // Make window semi-transparent, and mask out background color
-        //SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 128, LWA_ALPHA | LWA_COLORKEY);
-        ShowWindow(hWnd, nCmdShow);
-        GdiFlush();
-
-        // UpdateWindow() will force a redraw of only the update region of the window,
-        // i.e. that part of the window that has been invalidated (e.g. by calling InvalidateRect)
-        // since the last paint cycle.
-        // The UpdateWindow function updates the client area of the specified window by sending a WM_PAINT message to the window if the window's update region is not empty. The function sends a WM_PAINT message directly to the window procedure of the specified window, bypassing the application queue. If the update region is empty, no message is sent.
-        UpdateWindow(hWnd);
-
-        // BOOL InvalidateRect(HWND hWnd, const RECT *lpRect, BOOL bErase);
-        // Adds a rectangle to the specified window's update region
-        // 	hWnd - A handle to the window whose update region has changed. If this parameter is NULL, the system invalidates and redraws all windows, not just the windows for this application, and sends the WM_ERASEBKGND and WM_NCPAINT messages before the function returns. Setting this parameter to NULL is not recommended.
-        // 	lpRect - if NULL, the entire client area is added to the update region
-        //	bErase - if TRUE, the background is erased when the BeginPaint function is called
-        //InvalidateRect(hWnd, NULL, false);
-
-        // BOOL GetUpdateRect(HWND hWnd, LPRECT lpRect, BOOL bErase);
-        // Retrieves the coordinates of the smallest rectangle that completely encloses the update region of the specified window. GetUpdateRect retrieves the rectangle in logical coordinates. If there is no update region, GetUpdateRect retrieves an empty rectangle (sets all coordinates to zero).
-        // The update rectangle retrieved by the BeginPaint function is identical to that retrieved by GetUpdateRect.
-        // BeginPaint automatically validates the update region, so any call to GetUpdateRect made immediately after the call to BeginPaint retrieves an empty update region.
-        // hWnd - Handle to the window whose update region is to be retrieved.
-        // lpRect - Pointer to the RECT structure that receives the coordinates, in device units, of the enclosing rectangle.
-        // An application can set this parameter to NULL to determine whether an update region exists for the window. If this parameter is NULL, GetUpdateRect returns nonzero if an update region exists, and zero if one does not. This provides a simple and efficient means of determining whether a WM_PAINT message resulted from an invalid area.
-        // bErase - Specifies whether the background in the update region is to be erased. If this parameter is TRUE and the update region is not empty, GetUpdateRect sends a WM_ERASEBKGND message to the specified window to erase the background.
-        // Return value. If the update region is not empty, the return value is nonzero.
-
-        // BOOL RedrawWindow(HWND hWnd, const RECT *lprcUpdate, HRGN hrgnUpdate, UINT flags);
-        // The RedrawWindow function updates the specified rectangle or region in a window's client area.
-        // hWnd - A handle to the window to be redrawn. If this parameter is NULL, the desktop window is updated.
-        // lprcUpdate - A pointer to a RECT structure containing the coordinates, in device units, of the update rectangle. This parameter is ignored if the hrgnUpdate parameter identifies a region.
-        // hrgnUpdate - A handle to the update region. If both the hrgnUpdate and lprcUpdate parameters are NULL, the entire client area is added to the update region.
-        // flags - One or more redraw flags. This parameter can be used to invalidate or validate a window, control repainting, and control which windows are affected by RedrawWindow.
-        // The following flags are used to invalidate the window.
-        // RDW_ERASE Causes the window to receive a WM_ERASEBKGND message when the window is repainted. The RDW_INVALIDATE flag must also be specified; otherwise, RDW_ERASE has no effect.
-        // RDW_FRAME Causes any part of the nonclient area of the window that intersects the update region to receive a WM_NCPAINT message. The RDW_INVALIDATE flag must also be specified; otherwise, RDW_FRAME has no effect. The WM_NCPAINT message is typically not sent during the execution of RedrawWindow unless either RDW_UPDATENOW or RDW_ERASENOW is specified.
-        // RDW_INTERNALPAINT Causes a WM_PAINT message to be posted to the window regardless of whether any portion of the window is invalid.
-        // RDW_INVALIDATE Invalidates lprcUpdate or hrgnUpdate (only one may be non-NULL). If both are NULL, the entire window is invalidated.
-        // The following flags are used to validate the window.
-        // RDW_NOERASE Suppresses any pending WM_ERASEBKGND messages.
-        // RDW_NOFRAME Suppresses any pending WM_NCPAINT messages. This flag must be used with RDW_VALIDATE and is typically used with RDW_NOCHILDREN. RDW_NOFRAME should be used with care, as it could cause parts of a window to be painted improperly.
-        // RDW_NOINTERNALPAINT Suppresses any pending internal WM_PAINT messages. This flag does not affect WM_PAINT messages resulting from a non-NULL update area.
-        // RDW_VALIDATE Validates lprcUpdate or hrgnUpdate (only one may be non-NULL). If both are NULL, the entire window is validated. This flag does not affect internal WM_PAINT messages.
-        // The following flags control when repainting occurs. RedrawWindow will not repaint unless one of these flags is specified.
-        // RDW_ERASENOW Causes the affected windows (as specified by the RDW_ALLCHILDREN and RDW_NOCHILDREN flags) to receive WM_NCPAINT and WM_ERASEBKGND messages, if necessary, before the function returns. WM_PAINT messages are received at the ordinary time.
-        // RDW_UPDATENOW Causes the affected windows (as specified by the RDW_ALLCHILDREN and RDW_NOCHILDREN flags) to receive WM_NCPAINT, WM_ERASEBKGND, and WM_PAINT messages, if necessary, before the function returns.
-        // By default, the windows affected by RedrawWindow depend on whether the specified window has the WS_CLIPCHILDREN style. Child windows that are not the WS_CLIPCHILDREN style are unaffected; non-WS_CLIPCHILDREN windows are recursively validated or invalidated until a WS_CLIPCHILDREN window is encountered. The following flags control which windows are affected by the RedrawWindow function.
-        // RDW_ALLCHILDREN Includes child windows, if any, in the repainting operation.
-        // RDW_NOCHILDREN Excludes child windows, if any, from the repainting operation.
-        // Return value. If the function succeeds, the return value is nonzero.
-
-        //RedrawWindow(hWnd, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
-        //RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE);
-
-        // BOOL WaitMessage();
-        // Yields control to other threads when a thread has no other messages in its message queue. The WaitMessage function suspends the thread and does not return until a new message is placed in the thread's message queue.
-        // If the function succeeds, the return value is nonzero.
-
-        // BOOL GdiFlush();
-        // Flushes the calling thread's current batch.
-        // Return value. If not all functions in the current batch succeed, the return value is zero, indicating that at least one function returned an error.
-        // Batching enhances drawing performance by minimizing the amount of time needed to call GDI drawing functions that return Boolean values. The system accumulates the parameters for calls to these functions in the current batch and then calls the functions when the batch is flushed by any of the following means:
-        // * Calling the GdiFlush function. * Reaching or exceeding the batch limit set by the GdiSetBatchLimit function. * Filling the batching buffers. * Calling any GDI function that does not return a Boolean value.
-        // The return value for GdiFlush applies only to the functions in the batch at the time GdiFlush is called. Errors that occur when the batch is flushed by any other means are never reported.
-        // Note. The batch limit is maintained for each thread separately. In order to completely disable batching, call GdiSetBatchLimit (1) during the initialization of each thread.
-        // An application should call GdiFlush before a thread goes away if there is a possibility that there are pending function calls in the graphics batch queue. The system does not execute such batched functions when a thread goes away.
-        // A multithreaded application that serializes access to GDI objects with a mutex must ensure flushing the GDI batch queue by calling GdiFlush as each thread releases ownership of the GDI object. This prevents collisions of the GDI objects (device contexts, metafiles, and so on).
-
-        // DWORD GdiGetBatchLimit();
-        // Returns the maximum number of function calls that can be accumulated in the calling thread's current batch. The system flushes the current batch whenever this limit is exceeded.
-
-        // DWORD GdiSetBatchLimit(DWORD dw);
-        // Sets the maximum number of function calls that can be accumulated in the calling thread's current batch. The system flushes the current batch whenever this limit is exceeded.
-        // dw - Specifies the batch limit to be set. A value of 0 sets the default limit. A value of 1 disables batching.
-
-        // BOOL LockWindowUpdate(HWND hWndLock);
-        // Disables or enables drawing in the specified window. Only one window can be locked at a time.
-        // hWndLock - The window in which drawing will be disabled. If this parameter is NULL, drawing in the locked window is enabled.
-        // If the function fails, the return value is zero, indicating that an error occurred or another window was already locked.
-        // The purpose of the LockWindowUpdate function is to permit drag/drop feedback to be drawn over a window without interference from the window itself. The intent is that the window is locked when feedback is drawn and unlocked when feedback is complete. LockWindowUpdate is not intended for general-purpose suppression of window redraw. Use the WM_SETREDRAW message to disable redrawing of a particular window.
-        // If an application with a locked window (or any locked child windows) calls the GetDC, GetDCEx, or BeginPaint function, the called function returns a device context with a visible region that is empty. This will occur until the application unlocks the window by calling LockWindowUpdate, specifying a value of NULL for hWndLock.
-        // If an application attempts to draw within a locked window, the system records the extent of the attempted operation in a bounding rectangle. When the window is unlocked, the system invalidates the area within this bounding rectangle, forcing an eventual WM_PAINT message to be sent to the previously locked window and its child windows. If no drawing has occurred while the window updates were locked, no area is invalidated.
-        // LockWindowUpdate does not make the specified window invisible and does not clear the WS_VISIBLE style bit. A locked window cannot be moved.
-
-        // https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-appcommand
-        // FAPPCOMMAND_KEY   0		User pressed a key.
-        // FAPPCOMMAND_MOUSE 0x8000	User dicked a mouse button.
-
-        // DWORD timeGetTime();
-        // Retrieves the system time, in milliseconds. The system time is the time elapsed since Windows was started.
-
-        // typedef struct tagMSG {
-        //   HWND   hwnd;
-        //   UINT   message;
-        //   WPARAM wParam;
-        //   LPARAM lParam;
-        //   DWORD  time;
-        //   POINT  pt;
-        //   DWORD  lPrivate;
-        // } MSG, *PMSG, *NPMSG, *LPMSG;
-
-        //void *ptr = mmap((void*)0x1000000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_LOCKED|MAP_POPULATE, -1, 0);
-        //printf("=== mmap=%p\n", ptr);
-
         void *h_mapping = CreateFileMapping(
             INVALID_HANDLE_VALUE,	// not bound to actual file
             NULL,			// default security
@@ -2250,12 +2175,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             LocalFree(msg);
             exit(-1);
         }
-        void *p_view = MapViewOfFile(
+        void *p_view = MapViewOfFileEx(
             h_mapping,                  // mapping handle
             FILE_MAP_READ | FILE_MAP_WRITE | FILE_MAP_EXECUTE, // map flags
             0,                          // offset within the file mapping high
             0,				// offset within the file mapping low
-            4096			// size
+            0,				// number of bytes of a file mapping to map to a view; if 0, the mapping extends from the specified offset to the end of the file mapping
+            (void*)0x20000000		// 0x00370000: pointer to the memory address in the calling process address space where mapping begins
         );
         if (p_view == NULL) {
             char *msg;
@@ -2281,53 +2207,215 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             LocalFree(msg);
             exit(-4);
         }
+    }
 
-        auto start = std::chrono::high_resolution_clock::now();
 
-        MSG msg = {};
+    WNDCLASSEX wclx = {};
+    wclx.cbSize         = sizeof(wclx);
+    wclx.style          = CS_HREDRAW | CS_VREDRAW;
+    wclx.lpfnWndProc    = &WndProc;
+    wclx.cbClsExtra     = 0;
+    wclx.cbWndExtra     = 0;
+    wclx.hInstance      = hInstance;
+    wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
+    //wclx.hIcon        = LoadIcon(hInstance, MAKEINTRESOURCE(IDI_TRAYICON));
+    //wclx.hIconSm      = LoadSmallIcon(hInstance, IDI_TRAYICON);
+    wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
+    wclx.hbrBackground  = NULL;
+    //wclx.hbrBackground  = (HBRUSH) (COLOR_BTNFACE + 1);
+    //wclx.hbrBackground  = (HBRUSH) GetStockObject(BLACK_BRUSH);
+    wclx.hbrBackground  = CreateSolidBrush(0x333333);
+    wclx.lpszMenuName   = NULL;
+    wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
+    RegisterClassEx(&wclx);
 
-        while (GetMessage(&msg, NULL, 0, 0)) {
-            if (debug) {
-                DWORD insend = InSendMessageEx(NULL);
-                if (debug > 1) printf("GetMessage hwnd=%p message=%s (%u), wParam=%u, lParam=%lx time=%lu pt=%ld,%ld insend=%lx%s%s%s%s%s\n",
-                    msg.hwnd, debWin_msg(msg.message), msg.message, msg.wParam, msg.lParam, msg.time, msg.pt.x, msg.pt.y, insend,
-                    insend & ISMEX_SEND ? " send" : "",
-                    insend & ISMEX_REPLIED ? " replied" : "",
-                    insend & ISMEX_NOTIFY ? " notify" : "",
-                    insend & ISMEX_CALLBACK ? " callback" : "",
-                    insend & ~15 ? " UNKNOWN" : ""
-                );
-            }
+    /*
+    DWORD dwStyle = GetWindowLongPtr(hWnd, GWL_STYLE);
+    DWORD dwExStyle = GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+    HMENU menu = GetMenu(hWnd);
+    */
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
+    RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
+    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+        if (debug) printf("AdjustWindowRectEx() FAILED rect = { %ld, %ld, %ld, %ld  }\n",
+            clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
+        clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
+    } else {
+        if (debug) printf("AdjustWindowRectEx() rect = { %ld, %ld, %ld, %ld  }\n",
+            clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
+    }
 
-            if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
-                nredraws = 0;
-                if (msg.message == WM_CHAR && msg.wParam == 'K') {
-                    nloops = 1000;
-                } else {
-                    nloops = 100;
-                }
-                InvalidateRect(hWnd, NULL, false);
-                start = std::chrono::high_resolution_clock::now();
-            }
-            if (msg.message == WM_PAINT) {
-                if (nloops > 0) {
-                    InvalidateRect(hWnd, NULL, false);
-                } else if (nloops > -1) {
-                    std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
-                    printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
-                    if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
-                } if (nloops > -2) {
-                    nloops--;
-                }
-            }
+    HWND hWnd = gWnd = CreateWindowEx(
+        dwExStyle,		// Extended possibilites for variation
+        TEXT(THIS_CLASSNAME), // Classname
+        TEXT(THIS_TITLE),	// Title Text
+        dwStyle,		// default window
+        CW_USEDEFAULT,      // Windows decides the position
+        CW_USEDEFAULT,      // Where the window ends up on the screen
+        clientarea.right - clientarea.left, // width and
+        clientarea.bottom - clientarea.top, // height in pixels
+        HWND_DESKTOP,       // The window is a child-window to desktop
+        NULL,               // No menu
+        hInstance,          // Program Instance handler
+        NULL                // No Window Creation data
+    );
+
+    if (!hWnd) {
+        MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+        return 1;
+    }
+
+    SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
+
+    // Make window semi-transparent, and mask out background color
+    //SetLayeredWindowAttributes(hWnd, RGB(0, 0, 0), 128, LWA_ALPHA | LWA_COLORKEY);
+    ShowWindow(hWnd, nCmdShow);
+    GdiFlush();
+
+    // UpdateWindow() will force a redraw of only the update region of the window,
+    // i.e. that part of the window that has been invalidated (e.g. by calling InvalidateRect)
+    // since the last paint cycle.
+    // The UpdateWindow function updates the client area of the specified window by sending a WM_PAINT message to the window if the window's update region is not empty. The function sends a WM_PAINT message directly to the window procedure of the specified window, bypassing the application queue. If the update region is empty, no message is sent.
+    UpdateWindow(hWnd);
+
+    // BOOL InvalidateRect(HWND hWnd, const RECT *lpRect, BOOL bErase);
+    // Adds a rectangle to the specified window's update region
+    // 	hWnd - A handle to the window whose update region has changed. If this parameter is NULL, the system invalidates and redraws all windows, not just the windows for this application, and sends the WM_ERASEBKGND and WM_NCPAINT messages before the function returns. Setting this parameter to NULL is not recommended.
+    // 	lpRect - if NULL, the entire client area is added to the update region
+    //	bErase - if TRUE, the background is erased when the BeginPaint function is called
+    //InvalidateRect(hWnd, NULL, false);
+
+    // BOOL GetUpdateRect(HWND hWnd, LPRECT lpRect, BOOL bErase);
+    // Retrieves the coordinates of the smallest rectangle that completely encloses the update region of the specified window. GetUpdateRect retrieves the rectangle in logical coordinates. If there is no update region, GetUpdateRect retrieves an empty rectangle (sets all coordinates to zero).
+    // The update rectangle retrieved by the BeginPaint function is identical to that retrieved by GetUpdateRect.
+    // BeginPaint automatically validates the update region, so any call to GetUpdateRect made immediately after the call to BeginPaint retrieves an empty update region.
+    // hWnd - Handle to the window whose update region is to be retrieved.
+    // lpRect - Pointer to the RECT structure that receives the coordinates, in device units, of the enclosing rectangle.
+    // An application can set this parameter to NULL to determine whether an update region exists for the window. If this parameter is NULL, GetUpdateRect returns nonzero if an update region exists, and zero if one does not. This provides a simple and efficient means of determining whether a WM_PAINT message resulted from an invalid area.
+    // bErase - Specifies whether the background in the update region is to be erased. If this parameter is TRUE and the update region is not empty, GetUpdateRect sends a WM_ERASEBKGND message to the specified window to erase the background.
+    // Return value. If the update region is not empty, the return value is nonzero.
+
+    // BOOL RedrawWindow(HWND hWnd, const RECT *lprcUpdate, HRGN hrgnUpdate, UINT flags);
+    // The RedrawWindow function updates the specified rectangle or region in a window's client area.
+    // hWnd - A handle to the window to be redrawn. If this parameter is NULL, the desktop window is updated.
+    // lprcUpdate - A pointer to a RECT structure containing the coordinates, in device units, of the update rectangle. This parameter is ignored if the hrgnUpdate parameter identifies a region.
+    // hrgnUpdate - A handle to the update region. If both the hrgnUpdate and lprcUpdate parameters are NULL, the entire client area is added to the update region.
+    // flags - One or more redraw flags. This parameter can be used to invalidate or validate a window, control repainting, and control which windows are affected by RedrawWindow.
+    // The following flags are used to invalidate the window.
+    // RDW_ERASE Causes the window to receive a WM_ERASEBKGND message when the window is repainted. The RDW_INVALIDATE flag must also be specified; otherwise, RDW_ERASE has no effect.
+    // RDW_FRAME Causes any part of the nonclient area of the window that intersects the update region to receive a WM_NCPAINT message. The RDW_INVALIDATE flag must also be specified; otherwise, RDW_FRAME has no effect. The WM_NCPAINT message is typically not sent during the execution of RedrawWindow unless either RDW_UPDATENOW or RDW_ERASENOW is specified.
+    // RDW_INTERNALPAINT Causes a WM_PAINT message to be posted to the window regardless of whether any portion of the window is invalid.
+    // RDW_INVALIDATE Invalidates lprcUpdate or hrgnUpdate (only one may be non-NULL). If both are NULL, the entire window is invalidated.
+    // The following flags are used to validate the window.
+    // RDW_NOERASE Suppresses any pending WM_ERASEBKGND messages.
+    // RDW_NOFRAME Suppresses any pending WM_NCPAINT messages. This flag must be used with RDW_VALIDATE and is typically used with RDW_NOCHILDREN. RDW_NOFRAME should be used with care, as it could cause parts of a window to be painted improperly.
+    // RDW_NOINTERNALPAINT Suppresses any pending internal WM_PAINT messages. This flag does not affect WM_PAINT messages resulting from a non-NULL update area.
+    // RDW_VALIDATE Validates lprcUpdate or hrgnUpdate (only one may be non-NULL). If both are NULL, the entire window is validated. This flag does not affect internal WM_PAINT messages.
+    // The following flags control when repainting occurs. RedrawWindow will not repaint unless one of these flags is specified.
+    // RDW_ERASENOW Causes the affected windows (as specified by the RDW_ALLCHILDREN and RDW_NOCHILDREN flags) to receive WM_NCPAINT and WM_ERASEBKGND messages, if necessary, before the function returns. WM_PAINT messages are received at the ordinary time.
+    // RDW_UPDATENOW Causes the affected windows (as specified by the RDW_ALLCHILDREN and RDW_NOCHILDREN flags) to receive WM_NCPAINT, WM_ERASEBKGND, and WM_PAINT messages, if necessary, before the function returns.
+    // By default, the windows affected by RedrawWindow depend on whether the specified window has the WS_CLIPCHILDREN style. Child windows that are not the WS_CLIPCHILDREN style are unaffected; non-WS_CLIPCHILDREN windows are recursively validated or invalidated until a WS_CLIPCHILDREN window is encountered. The following flags control which windows are affected by the RedrawWindow function.
+    // RDW_ALLCHILDREN Includes child windows, if any, in the repainting operation.
+    // RDW_NOCHILDREN Excludes child windows, if any, from the repainting operation.
+    // Return value. If the function succeeds, the return value is nonzero.
+
+    //RedrawWindow(hWnd, NULL, NULL, RDW_ERASE | RDW_FRAME | RDW_INVALIDATE | RDW_ALLCHILDREN);
+    //RedrawWindow(hWnd, NULL, NULL, RDW_INVALIDATE);
+
+    // BOOL WaitMessage();
+    // Yields control to other threads when a thread has no other messages in its message queue. The WaitMessage function suspends the thread and does not return until a new message is placed in the thread's message queue.
+    // If the function succeeds, the return value is nonzero.
+
+    // BOOL GdiFlush();
+    // Flushes the calling thread's current batch.
+    // Return value. If not all functions in the current batch succeed, the return value is zero, indicating that at least one function returned an error.
+    // Batching enhances drawing performance by minimizing the amount of time needed to call GDI drawing functions that return Boolean values. The system accumulates the parameters for calls to these functions in the current batch and then calls the functions when the batch is flushed by any of the following means:
+    // * Calling the GdiFlush function. * Reaching or exceeding the batch limit set by the GdiSetBatchLimit function. * Filling the batching buffers. * Calling any GDI function that does not return a Boolean value.
+    // The return value for GdiFlush applies only to the functions in the batch at the time GdiFlush is called. Errors that occur when the batch is flushed by any other means are never reported.
+    // Note. The batch limit is maintained for each thread separately. In order to completely disable batching, call GdiSetBatchLimit (1) during the initialization of each thread.
+    // An application should call GdiFlush before a thread goes away if there is a possibility that there are pending function calls in the graphics batch queue. The system does not execute such batched functions when a thread goes away.
+    // A multithreaded application that serializes access to GDI objects with a mutex must ensure flushing the GDI batch queue by calling GdiFlush as each thread releases ownership of the GDI object. This prevents collisions of the GDI objects (device contexts, metafiles, and so on).
+
+    // DWORD GdiGetBatchLimit();
+    // Returns the maximum number of function calls that can be accumulated in the calling thread's current batch. The system flushes the current batch whenever this limit is exceeded.
+
+    // DWORD GdiSetBatchLimit(DWORD dw);
+    // Sets the maximum number of function calls that can be accumulated in the calling thread's current batch. The system flushes the current batch whenever this limit is exceeded.
+    // dw - Specifies the batch limit to be set. A value of 0 sets the default limit. A value of 1 disables batching.
+
+    // BOOL LockWindowUpdate(HWND hWndLock);
+    // Disables or enables drawing in the specified window. Only one window can be locked at a time.
+    // hWndLock - The window in which drawing will be disabled. If this parameter is NULL, drawing in the locked window is enabled.
+    // If the function fails, the return value is zero, indicating that an error occurred or another window was already locked.
+    // The purpose of the LockWindowUpdate function is to permit drag/drop feedback to be drawn over a window without interference from the window itself. The intent is that the window is locked when feedback is drawn and unlocked when feedback is complete. LockWindowUpdate is not intended for general-purpose suppression of window redraw. Use the WM_SETREDRAW message to disable redrawing of a particular window.
+    // If an application with a locked window (or any locked child windows) calls the GetDC, GetDCEx, or BeginPaint function, the called function returns a device context with a visible region that is empty. This will occur until the application unlocks the window by calling LockWindowUpdate, specifying a value of NULL for hWndLock.
+    // If an application attempts to draw within a locked window, the system records the extent of the attempted operation in a bounding rectangle. When the window is unlocked, the system invalidates the area within this bounding rectangle, forcing an eventual WM_PAINT message to be sent to the previously locked window and its child windows. If no drawing has occurred while the window updates were locked, no area is invalidated.
+    // LockWindowUpdate does not make the specified window invisible and does not clear the WS_VISIBLE style bit. A locked window cannot be moved.
+
+    // https://docs.microsoft.com/en-us/windows/win32/inputdev/wm-appcommand
+    // FAPPCOMMAND_KEY   0		User pressed a key.
+    // FAPPCOMMAND_MOUSE 0x8000	User dicked a mouse button.
+
+    // DWORD timeGetTime();
+    // Retrieves the system time, in milliseconds. The system time is the time elapsed since Windows was started.
+
+    // typedef struct tagMSG {
+    //   HWND   hwnd;
+    //   UINT   message;
+    //   WPARAM wParam;
+    //   LPARAM lParam;
+    //   DWORD  time;
+    //   POINT  pt;
+    //   DWORD  lPrivate;
+    // } MSG, *PMSG, *NPMSG, *LPMSG;
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    MSG msg = {};
+
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        if (debug) {
+            DWORD insend = InSendMessageEx(NULL);
+            if (debug > 1) printf("GetMessage hwnd=%p message=%s (%u), wParam=%u, lParam=%lx time=%lu pt=%ld,%ld insend=%lx%s%s%s%s%s\n",
+                msg.hwnd, debWin_msg(msg.message), msg.message, msg.wParam, msg.lParam, msg.time, msg.pt.x, msg.pt.y, insend,
+                insend & ISMEX_SEND ? " send" : "",
+                insend & ISMEX_REPLIED ? " replied" : "",
+                insend & ISMEX_NOTIFY ? " notify" : "",
+                insend & ISMEX_CALLBACK ? " callback" : "",
+                insend & ~15 ? " UNKNOWN" : ""
+            );
         }
 
-        UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
-        return msg.wParam;
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+
+        if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
+            nredraws = 0;
+            if (msg.message == WM_CHAR && msg.wParam == 'K') {
+                nloops = 1000;
+            } else {
+                nloops = 100;
+            }
+            InvalidateRect(hWnd, NULL, false);
+            start = std::chrono::high_resolution_clock::now();
+        }
+        if (msg.message == WM_PAINT) {
+            if (nloops > 0) {
+                InvalidateRect(hWnd, NULL, false);
+            } else if (nloops > -1) {
+                std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
+                printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
+                if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
+            } if (nloops > -2) {
+                nloops--;
+            }
+        }
     }
+
+    UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
+    return msg.wParam;
 }
 
 #endif

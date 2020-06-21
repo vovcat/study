@@ -21,7 +21,52 @@
 
 // asm
 
-#include "asm1.cpp"
+struct Key {
+    enum KeyEnum : int {
+        Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
+        Space = 0x20, At = 0x40, A = 0x41, Z = 0x5a, a = 0x61, z = 0x7a,
+        Nil = 0x100, F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+        ScrollLock = 0x110, Pause, Ins, Del, CapsLock,
+        ShiftL = 0x120, ShiftR, ControlL, WinL, AltL, AltR, WinR, Menu, ControlR,
+        Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
+        MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
+        /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
+        MAX = 0x1ff, SIZE = 0x200
+    };
+    enum StateEnum : int {
+        StateShift =		0x01,
+        StateCapsLock =		0x02,
+        StateControl =		0x04,
+        StateAlt =		0x08,
+        StateMod2 =		0x10,
+        StateMod3 =		0x20,
+        StateMod4 =		0x40,
+        StateWin =		0x80,
+        StateMouseLeft =	0x100,
+        StateMouseMiddle =	0x200,
+        StateMouseRight =	0x400,
+        StateMousePgUp =	0x800,
+        StateMousePgDn =	0x1000,
+        StateLang1 =		0x2000,
+        StateLang2 =		0x4000,
+    };
+};
+
+extern "C" {
+    const int FB_WIDTH = 800, FB_HEIGHT = 600, FB_STRIDE = FB_WIDTH * sizeof(unsigned);
+    typedef unsigned int framebuf_t[FB_HEIGHT][FB_WIDTH];
+    extern framebuf_t *pframebuf;
+    //     _________   _________   _______
+    // | |/   11    \ /   11    \ /   9   \  = size
+    // |3|3         2|1        10|0       0| = bit-
+    // |1|09876543210|98765432109|876543210|   number
+    // |-|     y     |     x     |   key   | = field
+    int getkey(void);
+    int waitkey(void);
+    void asm_main_text(void);
+}
+
+//#include "wxasm.cpp"
 
 // getkey()
 
@@ -40,8 +85,13 @@ template<typename T> struct cqueue
     typedef std::unique_lock<std::mutex> lock_t;
     size_t size() const { lock_t l(m); return q.size(); }
     T get() { lock_t l(m); while (q.empty()) cv.wait(l); T r = q.front(); q.pop(); return r; }
-    void put(const T &v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
+    void put(const T v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
 };
+
+void getkey_stop_thread(void)
+{
+    pthread_exit(NULL);
+}
 
 #elif defined(WIN32)
 
@@ -53,42 +103,47 @@ template<typename T> struct cqueue
     std::queue<T> q;
     mutable CRITICAL_SECTION m;
     CONDITION_VARIABLE cv;
-    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
     size_t size() const { EnterCriticalSection(&m); auto sz = q.size(); LeaveCriticalSection(&m); return sz; }
     T get() { EnterCriticalSection(&m); while (q.empty()) SleepConditionVariableCS(&cv, &m, INFINITE); T r = q.front(); q.pop(); LeaveCriticalSection(&m); return r; }
-    void put(const T &v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
+
+void getkey_stop_thread(void)
+{
+    ExitThread(0);
+}
 
 #endif
 
 const int keydelay = 1000;
+bool getkey_down = false;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
 framebuf_t *pframebuf = &framebuf;
 
-int getkey(int wait)
+int waitkey(void)
 {
+    if (getkey_down) { getkey_stop_thread(); return 0; }
     usleep(keydelay);
-    if (!wait && getkey_q.size() == 0) return 0;
     return getkey_q.get();
 }
 
-#ifdef WIN32
-asm volatile (R"(
-    # export to test_wx_asm.cpp
-    pframebuf = _pframebuf
-    getkey = _getkey
-    # import from test_wx_asm.cpp
-    _asm_main = asm_main
-)");
-#endif
-
-void asm_main_call(void)
+int getkey(void)
 {
-    asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    if (getkey_down) { getkey_stop_thread(); return 0; }
+    usleep(keydelay);
+    if (getkey_q.size() == 0) return 0;
+    return getkey_q.get();
 }
 
+void getkey_stop(void)
+{
+    getkey_down = true;
+    getkey_q.put(Key::Nokey); // wake up reader thread
+    usleep(keydelay * 2); // wait for possible usleep() there
+}
 
 //
 // MAIN: linux
@@ -101,10 +156,11 @@ void asm_main_call(void)
 #include <time.h> // time(), nanosleep()
 #include <locale.h> // setlocale()
 #include <pthread.h> // pthread_cancel()
+#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
 #include <sys/ipc.h> // IPC_PRIVATE, IPC_CREAT
 #include <sys/shm.h> // shmget(), shmat()
 #include <sys/time.h> // setitimer(), gettimeofday()
-#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
+#include <sys/mman.h> // mmap(), munmap()
 
 #include <X11/Xlib.h> // Display, Visual, X*
 #include <X11/Xlocale.h> // XSetLocaleModifiers(), XSupportsLocale()
@@ -132,19 +188,21 @@ static void RedrawWindow(Display *display, Window win, int count = 0)
 
 static Display *timer_dpy = NULL;
 static Window timer_win = 0;
+static Atom timer_atom = 0;
 static struct sigaction timer_sa = {};
 
 static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
 {
     if (!timer_dpy || !timer_win) return;
-    RedrawWindow(timer_dpy, timer_win);
+    RedrawWindow(timer_dpy, timer_win, timer_atom);
     XFlush(timer_dpy);
 }
 
-long timer_start(Display *dpy, Window win, int ms)
+long timer_start(Display *dpy, Window win, Atom atom, int ms)
 {
     timer_dpy = dpy;
     timer_win = win;
+    timer_atom = atom;
 
     struct sigaction sa = {};
     sa.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -181,6 +239,14 @@ void timer_stop(long)
 }
 
 // MAIN
+
+void asm_main_call(void)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
+    //return NULL;
+}
 
 int main(int argc, char *argv[])
 {
@@ -234,6 +300,7 @@ int main(int argc, char *argv[])
 
     /* ATOMS */
 
+    DefineAtom(NULL);
     DefineAtom(WM_DELETE_WINDOW);
     DefineAtom(_NET_WM_PING);
 
@@ -405,7 +472,7 @@ int main(int argc, char *argv[])
     XSync(display, false);
 
     // Start asm thread
-    std::thread gThread(asm_main_text);
+    std::thread gThread(asm_main_call);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -413,7 +480,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, 100);
+    long timer = timer_start(display, win, XA_NULL, 100);
 
     // Main loop
     bool done = 0;
@@ -528,6 +595,8 @@ int main(int argc, char *argv[])
 
     timer_stop(timer);
     pthread_cancel(gThread.native_handle());
+    getkey_stop(); // stop reader thread
+    pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
     XDestroyWindow(display, win);
@@ -561,9 +630,23 @@ static int benchmark = 0;
 int nredraws = 0;
 int start = 20;
 
-DWORD WINAPI asm_main_win32(void *)
+asm volatile (R"(
+    # export to wxasm.cpp
+    .global pframebuf
+    .global waitkey
+    .global getkey
+    pframebuf = _pframebuf
+    waitkey = _waitkey
+    getkey = _getkey
+    # import from wxasm.cpp
+    .global _asm_main
+    _asm_main = asm_main
+)");
+
+DWORD WINAPI asm_main_call(void *)
 {
-    asm_main();
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
     return 0;
 }
 
@@ -594,7 +677,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             ReleaseDC(hWnd, hdc);
 
             DWORD tid;
-            gThread = CreateThread(NULL, 0, asm_main_win32, NULL, 0, &tid);
+            gThread = CreateThread(NULL, 0, asm_main_call, NULL, 0, &tid);
             gTimer1 = SetTimer(hWnd, IDT_TIMER1, (UINT) 100, (TIMERPROC) NULL);
             return 0;
         }
@@ -807,92 +890,88 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         return 0;
     }
 
-    {
-        WNDCLASSEX wclx = {};
-        wclx.cbSize         = sizeof(wclx);
-        wclx.style          = CS_HREDRAW | CS_VREDRAW;
-        wclx.lpfnWndProc    = &WndProc;
-        wclx.cbClsExtra     = 0;
-        wclx.cbWndExtra     = 0;
-        wclx.hInstance      = hInstance;
-        wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
-        wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
-        wclx.hbrBackground  = NULL;
-        wclx.hbrBackground  = CreateSolidBrush(0x333333);
-        wclx.lpszMenuName   = NULL;
-        wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
-        RegisterClassEx(&wclx);
+    WNDCLASSEX wclx = {};
+    wclx.cbSize         = sizeof(wclx);
+    wclx.style          = CS_HREDRAW | CS_VREDRAW;
+    wclx.lpfnWndProc    = &WndProc;
+    wclx.cbClsExtra     = 0;
+    wclx.cbWndExtra     = 0;
+    wclx.hInstance      = hInstance;
+    wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
+    wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
+    wclx.hbrBackground  = NULL;
+    wclx.hbrBackground  = CreateSolidBrush(0x333333);
+    wclx.lpszMenuName   = NULL;
+    wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
+    RegisterClassEx(&wclx);
+
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
+
+    RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
+    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+        clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
     }
 
-    {
-        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
+    HWND hWnd = gWnd = CreateWindowEx(
+        dwExStyle,		// Extended possibilites for variation
+        TEXT(THIS_CLASSNAME), // Classname
+        TEXT(THIS_TITLE),	// Title Text
+        dwStyle,		// default window
+        CW_USEDEFAULT,      // Windows decides the position
+        CW_USEDEFAULT,      // Where the window ends up on the screen
+        clientarea.right - clientarea.left, // width and
+        clientarea.bottom - clientarea.top, // height in pixels
+        HWND_DESKTOP,       // The window is a child-window to desktop
+        NULL,               // No menu
+        hInstance,          // Program Instance handler
+        NULL                // No Window Creation data
+    );
 
-        RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-        if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
-            clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
+    if (!hWnd) {
+        MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+        return 1;
+    }
+
+    SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
+
+    ShowWindow(hWnd, nCmdShow);
+    GdiFlush();
+    UpdateWindow(hWnd);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    MSG msg = {};
+
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+
+        if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
+            nredraws = 0;
+            if (msg.message == WM_CHAR && msg.wParam == 'K') {
+                nloops = 1000;
+            } else {
+                nloops = 100;
+            }
+            InvalidateRect(hWnd, NULL, false);
+            start = std::chrono::high_resolution_clock::now();
         }
-
-        HWND hWnd = gWnd = CreateWindowEx(
-            dwExStyle,		// Extended possibilites for variation
-            TEXT(THIS_CLASSNAME), // Classname
-            TEXT(THIS_TITLE),	// Title Text
-            dwStyle,		// default window
-            CW_USEDEFAULT,      // Windows decides the position
-            CW_USEDEFAULT,      // Where the window ends up on the screen
-            clientarea.right - clientarea.left, // width and
-            clientarea.bottom - clientarea.top, // height in pixels
-            HWND_DESKTOP,       // The window is a child-window to desktop
-            NULL,               // No menu
-            hInstance,          // Program Instance handler
-            NULL                // No Window Creation data
-        );
-
-        if (!hWnd) {
-            MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
-            return 1;
-        }
-
-        SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
-
-        ShowWindow(hWnd, nCmdShow);
-        GdiFlush();
-        UpdateWindow(hWnd);
-
-        auto start = std::chrono::high_resolution_clock::now();
-
-        MSG msg = {};
-
-        while (GetMessage(&msg, NULL, 0, 0)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-
-            if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
-                nredraws = 0;
-                if (msg.message == WM_CHAR && msg.wParam == 'K') {
-                    nloops = 1000;
-                } else {
-                    nloops = 100;
-                }
+        if (msg.message == WM_PAINT) {
+            if (nloops > 0) {
                 InvalidateRect(hWnd, NULL, false);
-                start = std::chrono::high_resolution_clock::now();
-            }
-            if (msg.message == WM_PAINT) {
-                if (nloops > 0) {
-                    InvalidateRect(hWnd, NULL, false);
-                } else if (nloops > -1) {
-                    std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
-                    printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
-                    if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
-                } if (nloops > -2) {
-                    nloops--;
-                }
+            } else if (nloops > -1) {
+                std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
+                printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
+                if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
+            } if (nloops > -2) {
+                nloops--;
             }
         }
-
-        UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
-        return msg.wParam;
     }
+
+    UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
+    return msg.wParam;
 }
 
 #endif
