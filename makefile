@@ -1,5 +1,5 @@
-all: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
-all+: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
+all: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe
+all+: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe
 
 cvq_lin: cvq_lin.cpp
 	g++ -g -O0 -Wall -Wextra cvq_lin.cpp -o cvq_lin -lpthread && ./cvq_lin
@@ -17,9 +17,15 @@ wx.exe: wx.cpp wxasm.cpp
 	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp wxasm.cpp -o wx.exe -lgdi32 -lws2_32 #&& wine ./wx.exe
 test_asm: test_asm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm #&& ./test_asm
+test_usleep: test_usleep.cpp
+	g++ -g -O0 -Wall -Wextra test_usleep.cpp -o test_usleep
+test_usleep.exe: test_usleep.cpp
+	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -mconsole -static-libgcc test_usleep.cpp -o test_usleep.exe -lws2_32 -lwinmm -Wl,-Bstatic -lwinpthread -Wl,-Bdynamic
+
 dw:
 	diff -wu wx_all.cpp wx.cpp ||:
 g:
 	egrep -r $(S) /usr/share/mingw-w64/include/ /usr/i686-w64-mingw32/include/ /usr/lib/gcc/i686-w64-mingw32/*/include*
+
 clean:
-	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm
+	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe
