@@ -41,7 +41,8 @@ extern "C" {
     // |3|3         2|1        10|0       0| = bit-
     // |1|09876543210|98765432109|876543210|   number
     // |-|     y     |     x     |   key   | = field
-    int getkey(int wait);
+    int getkey(void);
+    int waitkey(void);
     void asm_main_text(void);
 }
 
@@ -132,7 +133,7 @@ void Xasm_main_text(void)
         if (x > 0         ) { pframebuf[0][y][x-1] = color; }
                             { pframebuf[0][y][x] = color; }
 
-        if (int key = getkey(0)) {
+        if (int key = getkey()) {
             if ((key & 511) == 'p') {
                 draw_box((char *)pframebuf);
             } else if ((key & 511) == 'l') {
@@ -260,9 +261,7 @@ nextpix:
         mov	eax, 0xff1133		# color
         mov	[esi+ebx*4], eax
 
-        push	0
         call	getkey
-        add	sp, 4			# pop
         jmp	nextpix
 
         mov	esp, ebp

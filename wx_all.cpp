@@ -83,7 +83,8 @@ extern "C" {
     // |3|3         2|1        10|0       0| = bit-
     // |1|09876543210|98765432109|876543210|   number
     // |-|     y     |     x     |   key   | = field
-    int getkey(int wait);
+    int getkey(void);
+    int waitkey(void);
     void asm_main_text(void);
 }
 
@@ -208,13 +209,30 @@ const char *KeyName(int key) {
     return p;
 }
 
+int getkey_wait(int wait);
+
 const int keydelay = 1000;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
 framebuf_t *pframebuf = &framebuf;
 
-int getkey(int wait)
+int waitkey(void)
+{
+    return getkey_wait(1);
+    usleep(keydelay);
+    return getkey_q.get();
+}
+
+int getkey(void)
+{
+    return getkey_wait(0);
+    usleep(keydelay);
+    if (getkey_q.size() == 0) return 0;
+    return getkey_q.get();
+}
+
+int getkey_wait(int wait)
 {
     static int ncalls = 0;
     const auto min = std::chrono::high_resolution_clock::time_point::min();
@@ -255,8 +273,6 @@ int getkey(int wait)
     printf("=== key=%s %08x (%d calls in %.2fs = %.2f calls/s = %.2fus/call)\n", KeyName(key), key,
         ncalls, ti.count() / 1e6, 1e6 * ncalls / ti.count(), ti.count() / ncalls);
     return key;
-
-    return getkey_q.get();
 }
 
 
@@ -1102,9 +1118,7 @@ int main(int argc, char *argv[])
                             }
                         }
                     }
-                    if (key) {
-                        getkey_q.put(key);
-                    }
+                    if (key) getkey_q.put(key);
                 }
 
                 if (1) {
@@ -1313,8 +1327,10 @@ int start = 20;
 asm volatile (R"(
     # export to wxasm.cpp
     .global pframebuf
+    .global waitkey
     .global getkey
     pframebuf = _pframebuf
+    waitkey = _waitkey
     getkey = _getkey
     # import from wxasm.cpp
     .global _asm_main

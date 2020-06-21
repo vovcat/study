@@ -61,7 +61,8 @@ extern "C" {
     // |3|3         2|1        10|0       0| = bit-
     // |1|09876543210|98765432109|876543210|   number
     // |-|     y     |     x     |   key   | = field
-    int getkey(int wait);
+    int getkey(void);
+    int waitkey(void);
     void asm_main_text(void);
 }
 
@@ -111,10 +112,16 @@ cqueue<int> getkey_q;
 framebuf_t framebuf;
 framebuf_t *pframebuf = &framebuf;
 
-int getkey(int wait)
+int waitkey(void)
 {
     usleep(keydelay);
-    if (!wait && getkey_q.size() == 0) return 0;
+    return getkey_q.get();
+}
+
+int getkey(void)
+{
+    usleep(keydelay);
+    if (getkey_q.size() == 0) return 0;
     return getkey_q.get();
 }
 
@@ -602,8 +609,10 @@ int start = 20;
 asm volatile (R"(
     # export to wxasm.cpp
     .global pframebuf
+    .global waitkey
     .global getkey
     pframebuf = _pframebuf
+    waitkey = _waitkey
     getkey = _getkey
     # import from wxasm.cpp
     .global _asm_main
