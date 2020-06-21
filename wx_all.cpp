@@ -62,7 +62,7 @@ template<typename T> struct cqueue
     typedef std::unique_lock<std::mutex> lock_t;
     size_t size() const { lock_t l(m); return q.size(); }
     T get() { lock_t l(m); while (q.empty()) cv.wait(l); T r = q.front(); q.pop(); return r; }
-    void put(const T &v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
+    void put(const T v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
 };
 
 #elif defined(WIN32)
@@ -75,10 +75,10 @@ template<typename T> struct cqueue
     std::queue<T> q;
     mutable CRITICAL_SECTION m;
     CONDITION_VARIABLE cv;
-    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
     size_t size() const { EnterCriticalSection(&m); auto sz = q.size(); LeaveCriticalSection(&m); return sz; }
     T get() { EnterCriticalSection(&m); while (q.empty()) SleepConditionVariableCS(&cv, &m, INFINITE); T r = q.front(); q.pop(); LeaveCriticalSection(&m); return r; }
-    void put(const T &v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
 
 #endif
