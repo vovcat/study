@@ -2131,12 +2131,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
             LocalFree(msg);
             exit(-1);
         }
-        void *p_view = MapViewOfFile(
+        void *p_view = MapViewOfFileEx(
             h_mapping,                  // mapping handle
             FILE_MAP_READ | FILE_MAP_WRITE | FILE_MAP_EXECUTE, // map flags
             0,                          // offset within the file mapping high
             0,				// offset within the file mapping low
-            4096			// size
+            0,				// number of bytes of a file mapping to map to a view; if 0, the mapping extends from the specified offset to the end of the file mapping
+            (void*)0x20000000		// 0x00370000: pointer to the memory address in the calling process address space where mapping begins
         );
         if (p_view == NULL) {
             char *msg;
