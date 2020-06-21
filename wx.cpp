@@ -166,19 +166,21 @@ static void RedrawWindow(Display *display, Window win, int count = 0)
 
 static Display *timer_dpy = NULL;
 static Window timer_win = 0;
+static Atom timer_atom = 0;
 static struct sigaction timer_sa = {};
 
 static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
 {
     if (!timer_dpy || !timer_win) return;
-    RedrawWindow(timer_dpy, timer_win);
+    RedrawWindow(timer_dpy, timer_win, timer_atom);
     XFlush(timer_dpy);
 }
 
-long timer_start(Display *dpy, Window win, int ms)
+long timer_start(Display *dpy, Window win, Atom atom, int ms)
 {
     timer_dpy = dpy;
     timer_win = win;
+    timer_atom = atom;
 
     struct sigaction sa = {};
     sa.sa_flags = SA_RESTART | SA_SIGINFO;
@@ -268,6 +270,7 @@ int main(int argc, char *argv[])
 
     /* ATOMS */
 
+    DefineAtom(NULL);
     DefineAtom(WM_DELETE_WINDOW);
     DefineAtom(_NET_WM_PING);
 
@@ -447,7 +450,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, 100);
+    long timer = timer_start(display, win, XA_NULL, 100);
 
     // Main loop
     bool done = 0;
