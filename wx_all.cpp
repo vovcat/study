@@ -446,6 +446,14 @@ void timer_stop(long)
 
 // MAIN
 
+void asm_main_call(void)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
+    //return NULL;
+}
+
 int main(int argc, char *argv[])
 {
     int screen, depth, bitmap_pad;
@@ -1057,7 +1065,7 @@ int main(int argc, char *argv[])
     munmap(ptr, 4096);
 
     // Start asm thread
-    std::thread gThread(asm_main_text);
+    std::thread gThread(asm_main_call);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -1356,8 +1364,9 @@ asm volatile (R"(
     _asm_main = asm_main
 )");
 
-DWORD WINAPI asm_main_win32(void *)
+DWORD WINAPI asm_main_call(void *)
 {
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
     return 0;
 }
@@ -1599,7 +1608,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 gThread = CreateThread(
                     NULL,                   // default security attributes
                     0,                      // use default stack size
-                    asm_main_win32,         // thread function name
+                    asm_main_call,          // thread function name
                     NULL,                   // argument to thread function
                     0,                      // use default creation flags
                     &tid                    // returns the thread identifier

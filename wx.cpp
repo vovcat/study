@@ -145,11 +145,6 @@ void getkey_stop(void)
     usleep(keydelay * 2); // wait for possible usleep() there
 }
 
-void asm_main_call(void)
-{
-    asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
-}
-
 //
 // MAIN: linux
 //
@@ -244,6 +239,14 @@ void timer_stop(long)
 }
 
 // MAIN
+
+void asm_main_call(void)
+{
+    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text();
+    //return NULL;
+}
 
 int main(int argc, char *argv[])
 {
@@ -469,7 +472,7 @@ int main(int argc, char *argv[])
     XSync(display, false);
 
     // Start asm thread
-    std::thread gThread(asm_main_text);
+    std::thread gThread(asm_main_call);
     gThread.detach();
 
     sigset_t sigmask = {};
@@ -640,8 +643,9 @@ asm volatile (R"(
     _asm_main = asm_main
 )");
 
-DWORD WINAPI asm_main_win32(void *)
+DWORD WINAPI asm_main_call(void *)
 {
+    //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
     return 0;
 }
@@ -673,7 +677,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             ReleaseDC(hWnd, hdc);
 
             DWORD tid;
-            gThread = CreateThread(NULL, 0, asm_main_win32, NULL, 0, &tid);
+            gThread = CreateThread(NULL, 0, asm_main_call, NULL, 0, &tid);
             gTimer1 = SetTimer(hWnd, IDT_TIMER1, (UINT) 100, (TIMERPROC) NULL);
             return 0;
         }
