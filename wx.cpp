@@ -135,10 +135,11 @@ void asm_main_call(void)
 #include <time.h> // time(), nanosleep()
 #include <locale.h> // setlocale()
 #include <pthread.h> // pthread_cancel()
+#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
 #include <sys/ipc.h> // IPC_PRIVATE, IPC_CREAT
 #include <sys/shm.h> // shmget(), shmat()
 #include <sys/time.h> // setitimer(), gettimeofday()
-#include <signal.h> // sigaction(), SA_RESTART, SIGALRM, SIG_DFL
+#include <sys/mman.h> // mmap(), munmap()
 
 #include <X11/Xlib.h> // Display, Visual, X*
 #include <X11/Xlocale.h> // XSetLocaleModifiers(), XSupportsLocale()
@@ -855,92 +856,88 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         return 0;
     }
 
-    {
-        WNDCLASSEX wclx = {};
-        wclx.cbSize         = sizeof(wclx);
-        wclx.style          = CS_HREDRAW | CS_VREDRAW;
-        wclx.lpfnWndProc    = &WndProc;
-        wclx.cbClsExtra     = 0;
-        wclx.cbWndExtra     = 0;
-        wclx.hInstance      = hInstance;
-        wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
-        wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
-        wclx.hbrBackground  = NULL;
-        wclx.hbrBackground  = CreateSolidBrush(0x333333);
-        wclx.lpszMenuName   = NULL;
-        wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
-        RegisterClassEx(&wclx);
+    WNDCLASSEX wclx = {};
+    wclx.cbSize         = sizeof(wclx);
+    wclx.style          = CS_HREDRAW | CS_VREDRAW;
+    wclx.lpfnWndProc    = &WndProc;
+    wclx.cbClsExtra     = 0;
+    wclx.cbWndExtra     = 0;
+    wclx.hInstance      = hInstance;
+    wclx.hIcon          = LoadIcon(hInstance, IDI_APPLICATION);
+    wclx.hCursor        = LoadCursor(NULL, IDC_ARROW);
+    wclx.hbrBackground  = NULL;
+    wclx.hbrBackground  = CreateSolidBrush(0x333333);
+    wclx.lpszMenuName   = NULL;
+    wclx.lpszClassName  = TEXT(THIS_CLASSNAME);
+    RegisterClassEx(&wclx);
+
+    DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
+
+    RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
+    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+        clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
     }
 
-    {
-        DWORD dwStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-        DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
+    HWND hWnd = gWnd = CreateWindowEx(
+        dwExStyle,		// Extended possibilites for variation
+        TEXT(THIS_CLASSNAME), // Classname
+        TEXT(THIS_TITLE),	// Title Text
+        dwStyle,		// default window
+        CW_USEDEFAULT,      // Windows decides the position
+        CW_USEDEFAULT,      // Where the window ends up on the screen
+        clientarea.right - clientarea.left, // width and
+        clientarea.bottom - clientarea.top, // height in pixels
+        HWND_DESKTOP,       // The window is a child-window to desktop
+        NULL,               // No menu
+        hInstance,          // Program Instance handler
+        NULL                // No Window Creation data
+    );
 
-        RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-        if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
-            clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
+    if (!hWnd) {
+        MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+        return 1;
+    }
+
+    SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
+
+    ShowWindow(hWnd, nCmdShow);
+    GdiFlush();
+    UpdateWindow(hWnd);
+
+    auto start = std::chrono::high_resolution_clock::now();
+
+    MSG msg = {};
+
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+
+        if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
+            nredraws = 0;
+            if (msg.message == WM_CHAR && msg.wParam == 'K') {
+                nloops = 1000;
+            } else {
+                nloops = 100;
+            }
+            InvalidateRect(hWnd, NULL, false);
+            start = std::chrono::high_resolution_clock::now();
         }
-
-        HWND hWnd = gWnd = CreateWindowEx(
-            dwExStyle,		// Extended possibilites for variation
-            TEXT(THIS_CLASSNAME), // Classname
-            TEXT(THIS_TITLE),	// Title Text
-            dwStyle,		// default window
-            CW_USEDEFAULT,      // Windows decides the position
-            CW_USEDEFAULT,      // Where the window ends up on the screen
-            clientarea.right - clientarea.left, // width and
-            clientarea.bottom - clientarea.top, // height in pixels
-            HWND_DESKTOP,       // The window is a child-window to desktop
-            NULL,               // No menu
-            hInstance,          // Program Instance handler
-            NULL                // No Window Creation data
-        );
-
-        if (!hWnd) {
-            MessageBox(NULL, "Can't create window!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
-            return 1;
-        }
-
-        SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
-
-        ShowWindow(hWnd, nCmdShow);
-        GdiFlush();
-        UpdateWindow(hWnd);
-
-        auto start = std::chrono::high_resolution_clock::now();
-
-        MSG msg = {};
-
-        while (GetMessage(&msg, NULL, 0, 0)) {
-            TranslateMessage(&msg);
-            DispatchMessage(&msg);
-
-            if (msg.message == WM_CHAR && (msg.wParam == 'c' || msg.wParam == 'K')) {
-                nredraws = 0;
-                if (msg.message == WM_CHAR && msg.wParam == 'K') {
-                    nloops = 1000;
-                } else {
-                    nloops = 100;
-                }
+        if (msg.message == WM_PAINT) {
+            if (nloops > 0) {
                 InvalidateRect(hWnd, NULL, false);
-                start = std::chrono::high_resolution_clock::now();
-            }
-            if (msg.message == WM_PAINT) {
-                if (nloops > 0) {
-                    InvalidateRect(hWnd, NULL, false);
-                } else if (nloops > -1) {
-                    std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
-                    printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
-                    if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
-                } if (nloops > -2) {
-                    nloops--;
-                }
+            } else if (nloops > -1) {
+                std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
+                printf("=== %d redraws in %.2fs = %.2f draw/s\n", nredraws, ti.count() / 1e6, 1e6 * nredraws / ti.count());
+                if (0) PostMessage(msg.hwnd, WM_DESTROY, 0, 0);
+            } if (nloops > -2) {
+                nloops--;
             }
         }
-
-        UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
-        return msg.wParam;
     }
+
+    UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
+    return msg.wParam;
 }
 
 #endif
