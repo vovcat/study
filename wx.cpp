@@ -88,6 +88,11 @@ template<typename T> struct cqueue
     void put(const T v) { lock_t l(m); q.push(v); l.unlock(); cv.notify_one(); }
 };
 
+void getkey_stop_thread(void)
+{
+    pthread_exit(NULL);
+}
+
 #elif defined(WIN32)
 
 #include <queue>
@@ -103,6 +108,11 @@ template<typename T> struct cqueue
     void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
     cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
+
+void getkey_stop_thread(void)
+{
+    ExitThread(0);
+}
 
 #endif
 
