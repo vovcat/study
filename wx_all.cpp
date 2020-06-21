@@ -2369,6 +2369,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     //   DWORD  lPrivate;
     // } MSG, *PMSG, *NPMSG, *LPMSG;
 
+    timeBeginPeriod(1); // minimum timer resolution, in milliseconds
     auto start = std::chrono::high_resolution_clock::now();
 
     MSG msg = {};
@@ -2412,6 +2413,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         }
     }
 
+    timeEndPeriod(1); // match each call to timeBeginPeriod with a call to timeEndPeriod, specifying the same minimum resolution
     UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
     return msg.wParam;
 }
