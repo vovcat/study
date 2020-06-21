@@ -890,6 +890,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         return 0;
     }
 
+    // Initialize Winsock
+    WSADATA wsaData;
+    int res = WSAStartup(MAKEWORD(2,2), &wsaData);
+    if (res != 0) {
+        printf("WSAStartup failed: %d\n", res);
+        return 1;
+    }
+
     WNDCLASSEX wclx = {};
     wclx.cbSize         = sizeof(wclx);
     wclx.style          = CS_HREDRAW | CS_VREDRAW;
