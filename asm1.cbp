@@ -35,10 +35,7 @@
 		<Compiler>
 			<Add option="-Wall -Wextra" />
 		</Compiler>
-		<Unit filename="asm1.cpp">
-			<Option compile="0" />
-			<Option link="0" />
-		</Unit>
+		<Unit filename="asm1.cpp" />
 		<Unit filename="asm1c.cpp">
 			<Option compile="0" />
 			<Option link="0" />
