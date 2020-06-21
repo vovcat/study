@@ -117,6 +117,7 @@ void getkey_stop_thread(void)
 #endif
 
 const int keydelay = 1000;
+bool getkey_down = false;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
@@ -124,22 +125,30 @@ framebuf_t *pframebuf = &framebuf;
 
 int waitkey(void)
 {
+    if (getkey_down) { getkey_stop_thread(); return 0; }
     usleep(keydelay);
     return getkey_q.get();
 }
 
 int getkey(void)
 {
+    if (getkey_down) { getkey_stop_thread(); return 0; }
     usleep(keydelay);
     if (getkey_q.size() == 0) return 0;
     return getkey_q.get();
+}
+
+void getkey_stop(void)
+{
+    getkey_down = true;
+    getkey_q.put(Key::Nokey); // wake up reader thread
+    usleep(keydelay * 2); // wait for possible usleep() there
 }
 
 void asm_main_call(void)
 {
     asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
 }
-
 
 //
 // MAIN: linux
@@ -583,6 +592,8 @@ int main(int argc, char *argv[])
 
     timer_stop(timer);
     pthread_cancel(gThread.native_handle());
+    getkey_stop(); // stop reader thread
+    pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
     XDestroyWindow(display, win);

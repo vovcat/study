@@ -222,6 +222,7 @@ const char *KeyName(int key) {
 int getkey_wait(int wait);
 
 const int keydelay = 1000;
+bool getkey_down = false;
 cqueue<int> getkey_q;
 
 framebuf_t framebuf;
@@ -229,6 +230,7 @@ framebuf_t *pframebuf = &framebuf;
 
 int waitkey(void)
 {
+    if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(1);
     usleep(keydelay);
     return getkey_q.get();
@@ -236,10 +238,18 @@ int waitkey(void)
 
 int getkey(void)
 {
+    if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(0);
     usleep(keydelay);
     if (getkey_q.size() == 0) return 0;
     return getkey_q.get();
+}
+
+void getkey_stop(void)
+{
+    getkey_down = true;
+    getkey_q.put(Key::Nokey); // wake up reader thread
+    usleep(keydelay * 2); // wait for possible usleep() there
 }
 
 int getkey_wait(int wait)
@@ -1295,9 +1305,8 @@ int main(int argc, char *argv[])
 
     timer_stop(timer);
     pthread_cancel(gThread.native_handle());
-    //while (getkey_q.size() < 10) getkey_q.put(-1);
-    //gThread.join();
-
+    getkey_stop(); // stop reader thread
+    pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
     XDestroyWindow(display, win);
