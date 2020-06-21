@@ -650,6 +650,19 @@ DWORD WINAPI asm_main_call(void *)
     return 0;
 }
 
+// windows: 1ms resolution set by timeBeginPeriod(1)
+int usleep(useconds_t usec)
+{
+    static HANDLE timer = NULL;
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
+    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    //CloseHandle(timer);
+    return 0;
+}
+
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     static HDC gdcMem;

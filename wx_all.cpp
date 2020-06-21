@@ -24,7 +24,6 @@ X11:
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
 #include <string.h> // strstr()
-#include <time.h> // time(), nanosleep()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -263,27 +262,6 @@ int getkey_wait(int wait)
 
     //extern HWND gWnd;
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
-
-    /* windows: 1ms resolution
-    struct timespec req = {}, rem = {};
-    req.tv_sec = keydelay / 1000000;
-    req.tv_nsec = (keydelay % 1000000) * 1000;
-    nanosleep(&req, &rem);
-    */
-    /* windows: 1ms resolution
-    struct timeval tv;
-    tv.tv_sec = keydelay / 1000000;
-    tv.tv_usec = keydelay % 1000000;
-    select(0, NULL, NULL, NULL, &tv);
-    */
-    /* windows: 1ms resolution
-    LARGE_INTEGER ft;
-    ft.QuadPart = -10LL * keydelay; // Convert to 100 nanosecond interval, negative value indicates relative time
-    HANDLE timer = CreateWaitableTimer(NULL, TRUE, NULL);
-    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
-    WaitForSingleObject(timer, INFINITE);
-    CloseHandle(timer);
-    */
 
     usleep(keydelay); // windows: 1ms resolution
     if (!wait && getkey_q.size() == 0) return 0;
@@ -1368,6 +1346,19 @@ DWORD WINAPI asm_main_call(void *)
 {
     //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
+    return 0;
+}
+
+// windows: 1ms resolution set by timeBeginPeriod(1)
+int usleep(useconds_t usec)
+{
+    static HANDLE timer = NULL;
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
+    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    //CloseHandle(timer);
     return 0;
 }
 
