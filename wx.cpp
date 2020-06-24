@@ -596,8 +596,9 @@ int main(int argc, char *argv[])
     }
 
     timer_stop(timer);
-    pthread_cancel(gThread.native_handle());
+    XSync(display, true);
     getkey_stop(); // stop reader thread
+    pthread_cancel(gThread.native_handle());
     pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
