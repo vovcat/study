@@ -220,6 +220,8 @@ const char *KeyName(int key) {
 
 int getkey_wait(int wait);
 
+const unsigned FPS = 30;
+const unsigned FPS_DELAY = 1000 / FPS - 1;
 const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
@@ -1051,7 +1053,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, XA_NULL, 100);
+    long timer = timer_start(display, win, XA_NULL, FPS_DELAY);
 
     // Main loop
     bool done = 0;
@@ -1611,7 +1613,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 gTimer1 = SetTimer(
                     hWnd,        	// handle to main window
                     IDT_TIMER1,       	// timer identifier
-                    (UINT) 100,       	// interval in ms
+                    FPS_DELAY,		// unsigned interval in ms
                     (TIMERPROC) NULL  	// no timer callback
                 );
                 if (debug) printf("=== Created timer %x\n", gTimer1);

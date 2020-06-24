@@ -116,6 +116,8 @@ void getkey_stop_thread(void)
 
 #endif
 
+const unsigned FPS = 30;
+const unsigned FPS_DELAY = 1000 / FPS - 1;
 const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
@@ -480,7 +482,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, XA_NULL, 100);
+    long timer = timer_start(display, win, XA_NULL, FPS_DELAY);
 
     // Main loop
     bool done = 0;
@@ -691,7 +693,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             DWORD tid;
             gThread = CreateThread(NULL, 0, asm_main_call, NULL, 0, &tid);
-            gTimer1 = SetTimer(hWnd, IDT_TIMER1, (UINT) 100, (TIMERPROC) NULL);
+            gTimer1 = SetTimer(hWnd, IDT_TIMER1, FPS_DELAY, (TIMERPROC) NULL);
             return 0;
         }
         case WM_CLOSE: {
