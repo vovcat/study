@@ -933,7 +933,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
     RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+    if (!AdjustWindowRectEx(&clientarea, dwStyle/*GetWindowLong(hWnd, GWL_STYLE)*/, 0/*GetMenu(hWnd) != 0*/, dwExStyle/*GetWindowLong(hWnd, GWL_EXSTYLE)*/)) {
         clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
     }
 
