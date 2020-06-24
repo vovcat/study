@@ -213,6 +213,14 @@ srand:
         xor	eax, [esp+20]
         xor	eax, [esp+24]
         xor	eax, [esp+28]
+        xor	eax, [esp+32]
+        xor	eax, [esp+36]
+        xor	eax, [esp+40]
+        xor	eax, [esp+44]
+        xor	eax, [esp+48]
+        xor	eax, [esp+52]
+        xor	eax, [esp+56]
+        xor	eax, [esp+60]
         mov	[seed], eax		# Update seed = return value
         ret
 
@@ -220,27 +228,52 @@ srand:
 # inputs: none (modifies PRN seed variable)
 # outputs: eax = next random number
 # clobbers: eax
-rand2:
-        mov	eax, 0xadb4a92d		# LCG Multiplier
+
+rand:
+randvc: mov	eax, 2194301		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        mov	[seed], eax		# Update seed
+        #shrd	eax, edx, 32		# 11..32
+        mov	eax, edx
+        ret
+
+rand1p: mov	eax, 0xadb4a92d		# LCG Multiplier
         mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
         add	eax, 0xa13fc965		# Add LCG increment value
-        shrd	eax, edx, 19
-        mov	[seed], eax		# Update seed = return value
-        ret
-rand:
-        mov	eax, 0x1010101		# LCG Multiplier
-        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
-        add	eax, 0x31415927		# Add LCG increment value
-        shrd	eax, edx, 16
+        shrd	eax, edx, 6		# +0: 6,23; +0xa13fc965: 15,16,19
         mov	[seed], eax		# Update seed = return value
         ret
 
+rand1:  mov	eax, 0xadb4a92d		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        add	eax, 0xa13fc965		# Add LCG increment value
+        mov	[seed], eax		# Update seed
+        #shrd	eax, edx, 10		# +0: 10..28; +0xa13fc965: 6..32
+        mov	eax, edx
+        ret
+
+rand2p: mov	eax, 0x1010101		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        add	eax, 0x31415927		# Add LCG increment value
+        shrd	eax, edx, 16		# 5,6,7,8,9,10,11,12,13,14,15,16
+        mov	[seed], eax		# Update seed = return value
+        ret
+
+rand2:  mov	eax, 0x1010101		# LCG Multiplier
+        mul	dword ptr [seed]	# edx:eax = LCG multiplier * seed
+        add	eax, 0x31415927		# Add LCG increment value
+        mov	[seed], eax		# Update seed
+        shrd	eax, edx, 16		# +0: NONE; +0x31415927: 9..32
+        #mov	eax, edx
+        ret
 
 asm_main:
         push	ebp
         mov	ebp, esp
         sub	esp, 8
 
+nextkey:
+        mov	ecx, 0x20
 nextpix:
         call	rand
         xor	edx, edx
@@ -261,8 +294,10 @@ nextpix:
         mov	eax, 0xff1133		# color
         mov	[esi+ebx*4], eax
 
+        loop	nextpix
+
         call	getkey
-        jmp	nextpix
+        jmp	nextkey
 
         mov	esp, ebp
         pop	ebp

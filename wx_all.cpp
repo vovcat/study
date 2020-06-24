@@ -24,7 +24,6 @@ X11:
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
 #include <string.h> // strstr()
-#include <time.h> // time(), nanosleep()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -221,7 +220,9 @@ const char *KeyName(int key) {
 
 int getkey_wait(int wait);
 
-const int keydelay = 1000;
+const unsigned FPS = 30;
+const unsigned FPS_DELAY = 1000 / FPS - 1;
+const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
@@ -232,7 +233,7 @@ int waitkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(1);
-    usleep(keydelay);
+    if (getkey_q.size() == 0) usleep(keydelay);
     return getkey_q.get();
 }
 
@@ -240,8 +241,8 @@ int getkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(0);
-    usleep(keydelay);
-    if (getkey_q.size() == 0) return 0;
+    if (getkey_q.size() == 0) usleep(keydelay);
+    if (getkey_q.size() == 0) return Key::Nokey;
     return getkey_q.get();
 }
 
@@ -264,28 +265,7 @@ int getkey_wait(int wait)
     //extern HWND gWnd;
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
 
-    /* windows: 1ms resolution
-    struct timespec req = {}, rem = {};
-    req.tv_sec = keydelay / 1000000;
-    req.tv_nsec = (keydelay % 1000000) * 1000;
-    nanosleep(&req, &rem);
-    */
-    /* windows: 1ms resolution
-    struct timeval tv;
-    tv.tv_sec = keydelay / 1000000;
-    tv.tv_usec = keydelay % 1000000;
-    select(0, NULL, NULL, NULL, &tv);
-    */
-    /* windows: 1ms resolution
-    LARGE_INTEGER ft;
-    ft.QuadPart = -10LL * keydelay; // Convert to 100 nanosecond interval, negative value indicates relative time
-    HANDLE timer = CreateWaitableTimer(NULL, TRUE, NULL);
-    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
-    WaitForSingleObject(timer, INFINITE);
-    CloseHandle(timer);
-    */
-
-    usleep(keydelay); // windows: 1ms resolution
+    if (getkey_q.size() == 0) usleep(keydelay);
     if (!wait && getkey_q.size() == 0) return 0;
 
     auto key = getkey_q.get();
@@ -1073,7 +1053,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, XA_NULL, 100);
+    long timer = timer_start(display, win, XA_NULL, FPS_DELAY);
 
     // Main loop
     bool done = 0;
@@ -1312,8 +1292,9 @@ int main(int argc, char *argv[])
     }
 
     timer_stop(timer);
-    pthread_cancel(gThread.native_handle());
+    XSync(display, true);
     getkey_stop(); // stop reader thread
+    pthread_cancel(gThread.native_handle());
     pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
@@ -1368,6 +1349,19 @@ DWORD WINAPI asm_main_call(void *)
 {
     //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
+    return 0;
+}
+
+// windows: 1ms resolution set by timeBeginPeriod(1)
+int usleep(useconds_t usec)
+{
+    static HANDLE timer = NULL;
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
+    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    //CloseHandle(timer);
     return 0;
 }
 
@@ -1620,7 +1614,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 gTimer1 = SetTimer(
                     hWnd,        	// handle to main window
                     IDT_TIMER1,       	// timer identifier
-                    (UINT) 100,       	// interval in ms
+                    FPS_DELAY,		// unsigned interval in ms
                     (TIMERPROC) NULL  	// no timer callback
                 );
                 if (debug) printf("=== Created timer %x\n", gTimer1);
@@ -2209,6 +2203,13 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         }
     }
 
+    // Initialize Winsock
+    WSADATA wsaData;
+    int res = WSAStartup(MAKEWORD(2,2), &wsaData);
+    if (res != 0) {
+        printf("WSAStartup failed: %d\n", res);
+        return 1;
+    }
 
     WNDCLASSEX wclx = {};
     wclx.cbSize         = sizeof(wclx);
@@ -2238,7 +2239,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
     RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+    if (!AdjustWindowRectEx(&clientarea, dwStyle/*GetWindowLong(hWnd, GWL_STYLE)*/, 0/*GetMenu(hWnd) != 0*/, dwExStyle/*GetWindowLong(hWnd, GWL_EXSTYLE)*/)) {
         if (debug) printf("AdjustWindowRectEx() FAILED rect = { %ld, %ld, %ld, %ld  }\n",
             clientarea.left, clientarea.top, clientarea.right, clientarea.bottom);
         clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
@@ -2371,6 +2372,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     //   DWORD  lPrivate;
     // } MSG, *PMSG, *NPMSG, *LPMSG;
 
+    timeBeginPeriod(1); // minimum timer resolution, in milliseconds
     auto start = std::chrono::high_resolution_clock::now();
 
     MSG msg = {};
@@ -2414,6 +2416,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         }
     }
 
+    timeEndPeriod(1); // match each call to timeBeginPeriod with a call to timeEndPeriod, specifying the same minimum resolution
     UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
     return msg.wParam;
 }

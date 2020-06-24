@@ -7,3 +7,5 @@ wx_all
 wx_all.exe
 wx
 wx.exe
+test_usleep
+test_usleep*.exe

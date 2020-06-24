@@ -116,7 +116,9 @@ void getkey_stop_thread(void)
 
 #endif
 
-const int keydelay = 1000;
+const unsigned FPS = 30;
+const unsigned FPS_DELAY = 1000 / FPS - 1;
+const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
@@ -126,15 +128,15 @@ framebuf_t *pframebuf = &framebuf;
 int waitkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
-    usleep(keydelay);
+    if (getkey_q.size() == 0) usleep(keydelay);
     return getkey_q.get();
 }
 
 int getkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
-    usleep(keydelay);
-    if (getkey_q.size() == 0) return 0;
+    if (getkey_q.size() == 0) usleep(keydelay);
+    if (getkey_q.size() == 0) return Key::Nokey;
     return getkey_q.get();
 }
 
@@ -480,7 +482,7 @@ int main(int argc, char *argv[])
     pthread_sigmask(SIG_BLOCK, &sigmask, NULL); // serve SIGALRM on the asm thread
 
     // Start the framebuffer refresh timer (vsync-like)
-    long timer = timer_start(display, win, XA_NULL, 100);
+    long timer = timer_start(display, win, XA_NULL, FPS_DELAY);
 
     // Main loop
     bool done = 0;
@@ -594,8 +596,9 @@ int main(int argc, char *argv[])
     }
 
     timer_stop(timer);
-    pthread_cancel(gThread.native_handle());
+    XSync(display, true);
     getkey_stop(); // stop reader thread
+    pthread_cancel(gThread.native_handle());
     pthread_join(gThread.native_handle(), NULL);
     XFreeGC(display, gc);
     XCloseIM(xim);
@@ -650,6 +653,19 @@ DWORD WINAPI asm_main_call(void *)
     return 0;
 }
 
+// windows: 1ms resolution set by timeBeginPeriod(1)
+int usleep(useconds_t usec)
+{
+    static HANDLE timer = NULL;
+    LARGE_INTEGER ft;
+    ft.QuadPart = -10LL * usec; // Convert to 100 nanosecond interval, negative value indicates relative time
+    if (!timer) timer = CreateWaitableTimer(NULL, TRUE, NULL);
+    SetWaitableTimer(timer, &ft, 0, NULL, NULL, 0);
+    WaitForSingleObject(timer, INFINITE);
+    //CloseHandle(timer);
+    return 0;
+}
+
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
     static HDC gdcMem;
@@ -678,7 +694,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             DWORD tid;
             gThread = CreateThread(NULL, 0, asm_main_call, NULL, 0, &tid);
-            gTimer1 = SetTimer(hWnd, IDT_TIMER1, (UINT) 100, (TIMERPROC) NULL);
+            gTimer1 = SetTimer(hWnd, IDT_TIMER1, FPS_DELAY, (TIMERPROC) NULL);
             return 0;
         }
         case WM_CLOSE: {
@@ -890,6 +906,14 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         return 0;
     }
 
+    // Initialize Winsock
+    WSADATA wsaData;
+    int res = WSAStartup(MAKEWORD(2,2), &wsaData);
+    if (res != 0) {
+        printf("WSAStartup failed: %d\n", res);
+        return 1;
+    }
+
     WNDCLASSEX wclx = {};
     wclx.cbSize         = sizeof(wclx);
     wclx.style          = CS_HREDRAW | CS_VREDRAW;
@@ -909,7 +933,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     DWORD dwExStyle = 0; //WS_EX_OVERLAPPEDWINDOW | WS_EX_APPWINDOW | WS_EX_NOACTIVATE;
 
     RECT clientarea = { 0, 0, FB_WIDTH, FB_HEIGHT };
-    if (!AdjustWindowRectEx(&clientarea, dwStyle, false, dwExStyle)) {
+    if (!AdjustWindowRectEx(&clientarea, dwStyle/*GetWindowLong(hWnd, GWL_STYLE)*/, 0/*GetMenu(hWnd) != 0*/, dwExStyle/*GetWindowLong(hWnd, GWL_EXSTYLE)*/)) {
         clientarea = { 0, 0, FB_WIDTH + 8, FB_HEIGHT + 27 };
     }
 
@@ -939,6 +963,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     GdiFlush();
     UpdateWindow(hWnd);
 
+    timeBeginPeriod(1); // minimum timer resolution, in milliseconds
     auto start = std::chrono::high_resolution_clock::now();
 
     MSG msg = {};
@@ -970,6 +995,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         }
     }
 
+    timeEndPeriod(1); // match each call to timeBeginPeriod with a call to timeEndPeriod, specifying the same minimum resolution
     UnregisterClass(TEXT(THIS_CLASSNAME), hInstance);
     return msg.wParam;
 }
