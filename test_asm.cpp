@@ -1,10 +1,9 @@
 // g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm && ./test_asm
-// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm && ods -Mintel ./test_asm
+// g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm && ods ./test_asm
 // g++ -g0 -O0 -Wall -Wextra -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -fno-dwarf2-cfi-asm -fno-pic -fno-inline -fverbose-asm -S test_asm.cpp && v test_asm.s
 // (g++ -g0 -O0 -Wall -Wextra -fno-exceptions -fno-rtti -fno-asynchronous-unwind-tables -fno-dwarf2-cfi-asm -fno-pic -fno-inline -fverbose-asm -Wa,-alhsdn=/dev/stdout test_asm.cpp && ./a.out) |v
 
 #include <stdio.h>
-#include <sys/mman.h>
 
 extern "C" char func2str[];
 char func2str[] = "func2()";
@@ -30,15 +29,14 @@ extern "C" int func2(
 int iv;
 const char *p;
 
-extern void asm_main_text()
+void asm_main_text()
 {
     asm volatile (R"(
         {.intel_syntax noprefix | }
-        #call asm_main
+        call asm_main
         jmp asm_exit
-
         .section data1, "awx"
-        .align 0x1000
+        .align 0x100
 asm_start:
 
         .align 16
@@ -93,6 +91,32 @@ func1:				# int func1(char c, int idx) { int a, b; ....; return ax; }
 
         mov esp, ebp
         pop ebp
+        ret
+
+        .align 16
+prefetch_len:
+        push edi
+        mov al, 0x90
+        mov eax, 0x90909090
+        mov eax, 0x90909090
+        mov eax, 0x90909090
+        mov ecx, (2f - 1f) / 4
+        mov edi, offset 1f
+        xor edx, edx
+        rep stosd es:[edi], eax
+1:	.rept 32
+        inc edx
+        .endr
+2:      mov eax, edx
+        pop edi
+        ret
+
+        .align 16
+asm_main:
+        push 0
+        push 'A'
+        call func1
+        add esp, 8
         ret
 
 add:
@@ -1323,15 +1347,6 @@ w:	.space 2
         .byte 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90
 
 
-        .global asm_main
-        .align 16
-asm_main:
-        push 0
-        push 'A'
-        call func1
-        add esp, 8
-        ret
-
 abs0:	mov eax, offset abs1
         mov eax, offset abs2
         mov eax, offset abs2
@@ -1351,7 +1366,7 @@ abs3:
 .text
 asm_exit:
         {.att_syntax noprefix | }
-)"
+        )"
         : /*out*/ //[i] "+m" (i), [ip] "+p" (i), [j] "+m" (j)
         : /*in*/  //[i] "a" (&i), [j] "b" (&j)
         : /*clobber*/ "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory"
@@ -1359,6 +1374,8 @@ asm_exit:
 }
 
 extern "C" void asm_main();
+extern "C" int prefetch_len(void);
+
 extern char asm_start[];
 extern char asm_end[];
 
@@ -1370,13 +1387,12 @@ int main()
     printf("=== func2(100,200)=%d\n", func2(100, 200));
 
     //asm_main(); // it doesn't save ebx
-    asm volatile ("call asm_main" ::: /*clobber*/ "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    //asm volatile ("call asm_main" ::: /*clobber*/ "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+    asm_main_text(); // saves ebx
 
     printf("=== p=%s iv=%d\n", p, iv);
     printf("=== asm_start=%p asm_end=%p size=%d\n", asm_start, asm_end, asm_end-asm_start);
-
-    void *ptr = mmap((void*)0x1000000, 4096, PROT_READ|PROT_WRITE|PROT_EXEC, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED|MAP_LOCKED|MAP_POPULATE, -1, 0);
-    printf("=== mmap=%p\n", ptr);
+    printf("=== prefetch_len=%d\n", prefetch_len());
 }
 
 /*
