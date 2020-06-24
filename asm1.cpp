@@ -105,6 +105,44 @@ asm_main:
     mov ebx, 340
     call PutPic16x24
 
+    mov eax, 300
+    mov ebx, 340
+    mov ecx, 0xffffff
+    call PutPix
+    mov eax, 302
+    mov ebx, 340
+    mov ecx, 0xffffff
+    call PutPix
+    mov eax, 300
+    mov ebx, 342
+    mov ecx, 0xffffff
+    call PutPix
+    mov eax, 302
+    mov ebx, 342
+    mov ecx, 0xffffff
+    call PutPix
+/*
+    mov eax, 100
+    mov ebx, 140
+    mov ecx, 0xffffff
+    mov edx, 60
+    call PutCircle
+    mov eax, 300
+    mov ebx, 140
+    mov ecx, 0xffffff
+    mov edx, 60
+    call PutCircle
+    mov eax, 100
+    mov ebx, 340
+    mov ecx, 0xffffff
+    mov edx, 60
+    call PutCircle
+    mov eax, 300
+    mov ebx, 340
+    mov ecx, 0xffffff
+    mov edx, 60
+    call PutCircle
+*/
 
     //     _________   _________   _______
     // | |/   11    \ /   11    \ /   9   \  = size
@@ -142,10 +180,72 @@ next:
     cmp ebx, edx
     cmova ebx, edx
     // eax - x, ebx - y
-    call PutPic16x24
+    mov ecx, 0xff2288
+    mov edx, 34
+    call PutCircle
     jmp next
 
     jmp endpic
+
+# void PutCircle(int (eax) xc,
+#                    (ebx) yc,
+#                    (ecx) colour,
+#                    (edx) radius
+#                   )
+
+PutCircle:
+        push eax
+        push eax
+        push edx
+        imul edx, edx
+        push ecx
+        push ebx
+        push eax
+        # [esp+0] -> x
+        # [esp+4] -> y
+        # [esp+8] -> colour
+        # [esp+12] -> radius
+        # [esp+16] -> savedx
+        # [esp+20] -> savedy
+
+loopy:
+        sub eax, [esp + 12]
+        sub ebx, [esp + 12]
+loopx:
+        mov [esp+16], eax # savedx
+        sub eax, [esp] # x
+        imul eax, eax
+        mov [esp+20], ebx # savedy
+        sub ebx, [esp + 4] # y
+        imul ebx, ebx
+        add eax, ebx
+        cmp eax, edx
+        mov eax, [esp+16] # savedx
+        mov ebx, [esp+20] # savedy
+        ja 1f
+        call PutPix
+1:
+        inc eax
+        cmp eax, 800
+        jb loopx
+
+        inc ebx
+        cmp ebx, 600
+        jb loopy
+        add esp, 24
+        ret
+
+
+# void PutPix(int (eax) x,
+#                 (ebx) y,
+#                 (ecx) colour)
+PutPix:
+    imul edi, ebx, 800
+    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
+    mov [edi], ecx
+    ret
 
 #
 # void PutPic16x24(int (edi) offset_in_pframebuff_in_bytes)
