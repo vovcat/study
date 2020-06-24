@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1592730605 source:d:\vmproj\asm1\wx.cpp
+1592666111 source:d:\vmproj\asm1\wx.cpp
 	<stdio.h>
 	<unistd.h>
 	<string.h>
@@ -17,11 +17,10 @@
 	<time.h>
 	<locale.h>
 	<pthread.h>
-	<signal.h>
 	<sys/ipc.h>
 	<sys/shm.h>
 	<sys/time.h>
-	<sys/mman.h>
+	<signal.h>
 	<X11/Xlib.h>
 	<X11/Xlocale.h>
 	<X11/Xatom.h>
@@ -32,6 +31,6 @@
 
 1592558726 d:\vmproj\asm1\wxasm.cpp
 
-1592680755 source:d:\vmproj\asm1\asm.cpp
+1592675999 source:d:\vmproj\asm1\asm.cpp
 
 1592665820 d:\vmproj\asm1\asm.cpp
