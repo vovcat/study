@@ -220,7 +220,7 @@ const char *KeyName(int key) {
 
 int getkey_wait(int wait);
 
-const int keydelay = 1000;
+const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
@@ -231,7 +231,7 @@ int waitkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(1);
-    usleep(keydelay);
+    if (getkey_q.size() == 0) usleep(keydelay);
     return getkey_q.get();
 }
 
@@ -239,8 +239,8 @@ int getkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
     return getkey_wait(0);
-    usleep(keydelay);
-    if (getkey_q.size() == 0) return 0;
+    if (getkey_q.size() == 0) usleep(keydelay);
+    if (getkey_q.size() == 0) return Key::Nokey;
     return getkey_q.get();
 }
 
@@ -263,7 +263,7 @@ int getkey_wait(int wait)
     //extern HWND gWnd;
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
 
-    usleep(keydelay); // windows: 1ms resolution
+    if (getkey_q.size() == 0) usleep(keydelay);
     if (!wait && getkey_q.size() == 0) return 0;
 
     auto key = getkey_q.get();

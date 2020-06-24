@@ -116,7 +116,7 @@ void getkey_stop_thread(void)
 
 #endif
 
-const int keydelay = 1000;
+const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
@@ -126,15 +126,15 @@ framebuf_t *pframebuf = &framebuf;
 int waitkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
-    usleep(keydelay);
+    if (getkey_q.size() == 0) usleep(keydelay);
     return getkey_q.get();
 }
 
 int getkey(void)
 {
     if (getkey_down) { getkey_stop_thread(); return 0; }
-    usleep(keydelay);
-    if (getkey_q.size() == 0) return 0;
+    if (getkey_q.size() == 0) usleep(keydelay);
+    if (getkey_q.size() == 0) return Key::Nokey;
     return getkey_q.get();
 }
 
