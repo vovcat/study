@@ -81,6 +81,8 @@ pic:
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
 
+hello:
+    .string "Hello there, Tim!"
 
     .align 8
 asm_main:
@@ -105,6 +107,26 @@ asm_main:
     mov ebx, 340
     call PutPic16x24
 
+/*
+    # clear screen
+    push eax
+    xor eax, eax
+    mov ecx, 800*600
+    mov edi, [pframebuf]
+    rep stosd
+    pop eax
+*/
+    mov eax, 100
+    mov ebx, 140
+    mov ecx, 0xff3388
+    mov edx, 'A'
+    call PutChar
+
+    mov eax, 300
+    mov ebx, 160
+    mov ecx, 0xff3388
+    mov edx, offset hello
+    call PutStr
 
     //     _________   _________   _______
     // | |/   11    \ /   11    \ /   9   \  = size
@@ -114,7 +136,6 @@ asm_main:
 
     // MouseMove event:
     //  0 yyyyyyyyyyy xxxxxxxxxxx 111010000 (0x1d0)
-
 next:
     call waitkey
     mov ebx, eax
@@ -169,6 +190,71 @@ PutLine16:
     mov ecx, 16
     rep movsd [edi], [esi]
     pop ecx
+    ret
+
+# void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
+PutChar:
+        push edx
+        push ecx
+        push ebx
+        push eax
+        # x=[esp] y=[esp+4] color=[esp+8] ch=[esp+12]
+
+        mov ebx, offset font8x13
+        mov eax, [esp + 12]
+        imul eax, eax, 13
+        add ebx, eax
+        mov edi, [pframebuf]
+        add edi, [esp]
+        mov eax, [esp + 4]
+        imul eax, eax, 800
+        add edi, eax
+        mov ecx, 13
+
+           putlet:
+            push ecx
+            mov ecx, 8
+            mov al, [ebx]
+
+           putline:
+                test al, 0b10000000
+                jz zero
+            notzero:
+                mov esi, [esp + 12] # color
+                mov dword ptr [edi], esi
+            zero:
+                shl al, 1
+                add edi, 4
+                loop putline
+
+            add edi, (800 - 8)*4
+            inc ebx
+            pop ecx
+            loop putlet
+
+        add esp, 16
+        ret
+
+// void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
+PutStr:
+    push edx
+    push ecx
+    push ebx
+    push eax
+    # x=[esp] y=[esp+4] color=[esp+8] str=[esp+12]
+
+1:  mov edx, [esp + 12] # str
+    movzx edx, byte ptr [edx]
+    cmp edx, 0
+    jz 2f
+    mov ecx, [esp + 8]
+    mov ebx, [esp + 4]
+    mov eax, [esp]
+    call PutChar
+    add dword ptr [esp], 8*4
+    inc dword ptr [esp + 12]
+    jmp 1b
+2:  add esp, 16
     ret
 
 endpic:

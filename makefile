@@ -11,14 +11,14 @@ wx_all: wx_all.cpp wxasm.cpp auto.h debX11.cpp debWin.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx_all.cpp wxasm.cpp -o wx_all -lX11 -lXext -lpthread #&& ./wx_all
 wx_all.exe: wx_all.cpp wxasm.cpp auto.h debX11.cpp debWin.cpp
 	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc -static-libstdc++ wx_all.cpp wxasm.cpp -o wx_all.exe -lgdi32 -lws2_32 -lwinmm #&& wine ./wx_all.exe
-wx: wx.cpp wxasm.cpp
-	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp wxasm.cpp -o wx -lX11 -lXext -lpthread #&& ./wx
-wx.exe: wx.cpp wxasm.cpp
-	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc -static-libstdc++ wx.cpp wxasm.cpp -o wx.exe -lgdi32 -lws2_32 -lwinmm #&& wine ./wx.exe
-asm1: wx.cpp asm1.cpp
-	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp asm1.cpp -o asm1 -lX11 -lXext -lpthread #&& ./wx
-asm1.exe: wx.cpp asm1.cpp
-	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp asm1.cpp -o asm1.exe -lgdi32 -lws2_32 -lwinmm #&& wine ./wx.exe
+wx: wx.cpp font8x13.s wxasm.cpp
+	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp font8x13.s wxasm.cpp -o wx -lX11 -lXext -lpthread #&& ./wx
+wx.exe: wx.cpp font8x13.s wxasm.cpp
+	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc -static-libstdc++ wx.cpp font8x13.s wxasm.cpp -o wx.exe -lgdi32 -lws2_32 -lwinmm #&& wine ./wx.exe
+asm1: wx.cpp font8x13.s asm1.cpp
+	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp font8x13.s asm1.cpp -o asm1 -lX11 -lXext -lpthread #&& ./wx
+asm1.exe: wx.cpp font8x13.s asm1.cpp
+	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp font8x13.s asm1.cpp -o asm1.exe -lgdi32 -lws2_32 -lwinmm #&& wine ./wx.exe
 test_asm: test_asm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o test_asm #&& ./test_asm
 test_usleep: test_usleep.cpp

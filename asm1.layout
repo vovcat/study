@@ -2,27 +2,29 @@
 <CodeBlocks_layout_file>
 	<FileVersion major="1" minor="0" />
 	<ActiveTarget name="Debug" />
-	<File name="wx.cpp" open="0" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="asm1c.cpp" open="1" top="0" tabpos="3" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="4380" topLine="15" />
+			<Cursor1 position="4847" topLine="4" />
 		</Cursor>
 	</File>
-	<File name="asm1.cpp" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="wx.cpp" open="0" top="0" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="7780" topLine="93" />
+			<Cursor1 position="33208" topLine="607" />
 		</Cursor>
-		<Folding>
-			<Collapse line="0" />
-		</Folding>
+	</File>
+	<File name="font8x13.s" open="1" top="0" tabpos="2" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+		<Cursor>
+			<Cursor1 position="282" topLine="96" />
+		</Cursor>
 	</File>
 	<File name="wxasm.cpp" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
 			<Cursor1 position="1818" topLine="87" />
 		</Cursor>
 	</File>
-	<File name="asm1c.cpp" open="0" top="0" tabpos="0" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
+	<File name="asm1.cpp" open="1" top="1" tabpos="1" split="0" active="1" splitpos="0" zoom_1="0" zoom_2="0">
 		<Cursor>
-			<Cursor1 position="4847" topLine="5" />
+			<Cursor1 position="9958" topLine="223" />
 		</Cursor>
 	</File>
 </CodeBlocks_layout_file>

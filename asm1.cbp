@@ -16,6 +16,8 @@
 				</Compiler>
 				<Linker>
 					<Add library="gdi32" />
+					<Add library="winmm" />
+					<Add library="ws2_32" />
 				</Linker>
 			</Target>
 			<Target title="Release">
@@ -29,6 +31,8 @@
 				<Linker>
 					<Add option="-s" />
 					<Add library="gdi32" />
+					<Add library="winmm" />
+					<Add library="ws2_32" />
 				</Linker>
 			</Target>
 		</Build>
@@ -40,6 +44,7 @@
 			<Option compile="0" />
 			<Option link="0" />
 		</Unit>
+		<Unit filename="font8x13.s" />
 		<Unit filename="wx.cpp" />
 		<Unit filename="wxasm.cpp">
 			<Option compile="0" />
