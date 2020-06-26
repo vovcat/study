@@ -116,9 +116,9 @@ void getkey_stop_thread(void)
 
 #endif
 
-const unsigned FPS = 30;
+const unsigned FPS = 60;
 const unsigned FPS_DELAY = 1000 / FPS - 1;
-const int keydelay = 900; //us
+const int keydelay = 3900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 

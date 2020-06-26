@@ -49,12 +49,15 @@ void asm_main_text(void)
         {.intel_syntax noprefix | }
         call asm_main
         jmp asm_exit
-        .section data1, "awx"
         .global asm_main
-        .align 0x100
 
+    .section data1, "awx"
+
+#.=0040d000
+dot: .int .
 
     .align 16
+
 pic:
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
@@ -80,15 +83,17 @@ pic:
     .int 0xffffff00,0xffffff00,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xff444444,0xffffff00,0xffffff00
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
+star:
+    .incbin "star.bmp", 54, 32*32*3
 
-hello:
-    .string "Hello there, Tim!"
+hello:  .string "dot=xxxxxxxx"
+hex:    .string "0123456789abcdef"
 
     .align 8
 asm_main:
-
     # 260,400
     mov eax, 400
+    .byte 0xb8, 0x90, 1, 0, 0
     mov ebx, 260
     call PutPic16x24
 
@@ -122,6 +127,19 @@ asm_main:
     mov edx, 'A'
     call PutChar
 
+    mov edx, 400
+    mov edi, offset hello+4
+    mov ecx, 8
+1:  # 0x12345678
+    rol edx, 4
+    # 0x23456781
+    mov eax, edx
+    and eax, 0x0f
+    # 1 (00.0f)
+    mov al, [hex+eax]
+    stosb # al -> [edi], edi++
+    loop 1b
+
     mov eax, 300
     mov ebx, 160
     mov ecx, 0xff3388
@@ -137,12 +155,14 @@ asm_main:
     // MouseMove event:
     //  0 yyyyyyyyyyy xxxxxxxxxxx 111010000 (0x1d0)
 next:
-    call waitkey
+    call getkey
     mov ebx, eax
     and ebx, 0b111111111
     cmp ebx, 0x1d0 # MouseMove
-    jne next
-    /* # clear screen
+    jne cont
+
+    /*
+    # clear screen
     push eax
     xor eax, eax
     mov ecx, 800*600
@@ -156,7 +176,7 @@ next:
     mov edx, 800-16	# clamp x to 0..800-16
     cmp eax, edx
     cmova eax, edx
-    pop ebx		# extract y
+    pop ebx		    # extract y
     and ebx, 0b01111111111100000000000000000000
     shr ebx, 20
     mov edx, 600-24	# clamp y to 0..600-24
@@ -164,9 +184,69 @@ next:
     cmova ebx, edx
     // eax - x, ebx - y
     call PutPic16x24
+
+cont:
+    mov eax, 300
+    mov ebx, 160
+    mov ecx, 0xff3388
+    mov edx, offset hello
+    call PutStr
+
+    call animate
     jmp next
 
     jmp endpic
+
+
+animate:
+    xor eax, eax
+    mov ecx, 800*32
+    mov edi, [pframebuf]
+    add edi, 800*500 * 4
+    rep stosd
+    mov eax, [animate_x]
+    mov ebx, 500
+    call PutStar
+    cmp eax, 800 - 32
+    jb 1f
+    neg dword ptr [animate_v]
+1:  add eax, [animate_v]
+    mov [animate_x], eax
+    ret
+
+animate_x:
+    .int 0
+animate_v:
+    .int 1
+
+PutStar:
+    pusha
+    imul edi, ebx, 800
+    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
+    mov esi, offset star
+    mov ecx, 32
+1:  push ecx
+    mov ecx, 32
+    xor eax, eax
+2:  lodsb al, [esi] # esi++
+    ror eax, 8
+    lodsb al, [esi] # esi++
+    ror eax, 8
+    lodsb al, [esi] # esi++
+    ror eax, 16
+    cmp eax, 0xffffff
+    je 3f
+    # stosd es:[edi], eax # edi+=4
+    mov [edi], eax
+3:  add edi, 4
+    loop 2b
+    pop ecx
+    add edi, (800 - 32) * 4
+    loop 1b
+    popa
+    ret
 
 #
 # void PutPic16x24(int (edi) offset_in_pframebuff_in_bytes)
@@ -194,19 +274,24 @@ PutLine16:
 
 # void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
 PutChar:
-        push edx
+        push ebp
+        mov ebp, esp
+
+        push edx        # [ebp-4] = esp -> [edx]  ebp -> [oldebp]
         push ecx
         push ebx
         push eax
-        # x=[esp] y=[esp+4] color=[esp+8] ch=[esp+12]
+
+        # x=[ebp-16] y=[ebp-12] color=[ebp-8] ch=[ebp-4]
+        sub esp, 8
 
         mov ebx, offset font8x13
-        mov eax, [esp + 12]
+        mov eax, [ebp - 4] # ch
         imul eax, eax, 13
         add ebx, eax
         mov edi, [pframebuf]
-        add edi, [esp]
-        mov eax, [esp + 4]
+        add edi, [ebp - 16] # x
+        mov eax, [ebp - 12] # y
         imul eax, eax, 800
         add edi, eax
         mov ecx, 13
@@ -219,10 +304,10 @@ PutChar:
            putline:
                 test al, 0b10000000
                 jz zero
-            notzero:
-                mov esi, [esp + 12] # color
+           notzero:
+                mov esi, [ebp - 8] # color
                 mov dword ptr [edi], esi
-            zero:
+           zero:
                 shl al, 1
                 add edi, 4
                 loop putline
@@ -232,7 +317,8 @@ PutChar:
             pop ecx
             loop putlet
 
-        add esp, 16
+        mov esp, ebp
+        pop ebp
         ret
 
 // void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
