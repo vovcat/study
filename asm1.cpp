@@ -112,22 +112,30 @@ asm_main:
     mov ebx, 340
     call PutPic16x24
 
-/*
-    # clear screen
-    push eax
-    xor eax, eax
-    mov ecx, 800*600
-    mov edi, [pframebuf]
-    rep stosd
-    pop eax
-*/
     mov eax, 100
     mov ebx, 140
     mov ecx, 0xff3388
     mov edx, 'A'
     call PutChar
 
-    mov edx, 400
+    #reserved = 00000000 = 0
+    #code     = 00400000 = 4 Mb
+    #asm_exit = 004015cd
+    #main     = 00404d70
+    #_start   = 0040c50c
+    #dot      = 0040d000
+    #asm_main = 0040e230
+    #asm_end  = 0040e4df = 4 Mb 153 kb
+
+    #fb_start = 02b00000 = 44 Mb
+    #fb_end   =          = 45 Mb
+
+    #________ =          = 45 Mb
+    # ^  ^  ^
+    # |  |  |
+    #esp      = 02d0ff50 = 46 Mb 143 kb
+
+    mov edx, [pframebuf]
     mov edi, offset hello+4
     mov ecx, 8
 1:  # 0x12345678
@@ -192,25 +200,74 @@ next:
 
 
 animate:
-    xor eax, eax
-    mov ecx, 800*32
-    mov edi, [pframebuf]
-    add edi, 800*500 * 4
-    rep stosd
-    mov eax, [animate_x]
-    mov ebx, 500
-    call PutStar
-    cmp eax, 800 - 32
-    jb 1f
-    neg dword ptr [animate_v]
-1:  add eax, [animate_v]
-    mov [animate_x], eax
+
+    # animate_star(&star1); // is equivalent of animate_s1();
+    mov eax, offset star1
+    call animate_star
+
+    # animate_star(&star2);
+    mov eax, offset star2
+    call animate_star
+
     ret
 
-animate_x:
-    .int 0
-animate_v:
-    .int 1
+/* struct star {
+    int x, y;
+    int v;
+}; */
+
+star.x = 0
+star.y = 4
+star.v = 8
+
+/*
+star s1 = { 0, 100, 8 };
+star s2 = { 100, 500, 6 };
+*/
+
+star1:
+    animate_x:  .int 0
+    animate_y:  .int 500
+    animate_v:  .int 6
+
+star2:
+    animate_x2:  .int 100
+    animate_y2:  .int 100
+    animate_v2:  .int 8
+
+// function animate_star(star *s (eax));
+
+animate_star:
+    mov esi, eax
+    mov ecx, 32
+    xor eax, eax
+    mov edi, [esi + star.y]
+    imul edi, 800
+    add edi, [esi + star.x]
+    shl edi, 2
+    add edi, [pframebuf]
+    mov ecx, 32
+1:  mov ebx, ecx
+    mov ecx, 32
+    rep stosd
+    add edi, (800 - 32) * 4
+    mov ecx, ebx
+    loop 1b
+
+    mov eax, [esi + 0]
+    add eax, [esi + 8]
+    cmp eax, 800 - 32
+    jle 1f
+    neg dword ptr [esi + 8] # v
+    mov eax, 800 - 32
+1:  cmp eax, 0
+    jg 1f
+    neg dword ptr [esi + 8] # v
+    mov eax, 0
+1:  mov [esi + 0], eax
+    mov ebx, [esi + 4]
+    call PutStar
+    ret
 
 PutStar:
     pusha
@@ -369,6 +426,9 @@ endpic:
 
     # done
     ret
+
+    # . = 0x0040e4df
+asm_end:
 
         .text
 asm_exit:
