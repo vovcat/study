@@ -12,12 +12,15 @@
 				<Option type="1" />
 				<Option compiler="gcc" />
 				<Compiler>
+					<Add option="-march=prescott" />
 					<Add option="-g" />
 				</Compiler>
 				<Linker>
+					<Add option="-static-libgcc" />
 					<Add library="gdi32" />
 					<Add library="winmm" />
 					<Add library="ws2_32" />
+					<Add library="avrt" />
 				</Linker>
 			</Target>
 			<Target title="Release">
@@ -30,9 +33,11 @@
 				</Compiler>
 				<Linker>
 					<Add option="-s" />
+					<Add option="-static-libgcc" />
 					<Add library="gdi32" />
 					<Add library="winmm" />
 					<Add library="ws2_32" />
+					<Add library="avrt" />
 				</Linker>
 			</Target>
 		</Build>

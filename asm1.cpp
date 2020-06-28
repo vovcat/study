@@ -8,7 +8,7 @@ struct Key {
         Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
         MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
         /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
-        MAX = 0x1ff, SIZE = 0x200
+        NextFrame = 0x1ff, MAX = 0x1ff, SIZE = 0x200
     };
     enum StateEnum : int {
         StateShift =		0x01,
@@ -159,24 +159,15 @@ next:
     mov ebx, eax
     and ebx, 0b111111111
     cmp ebx, 0x1d0 # MouseMove
-    jne cont
+    jne 9f
 
-    /*
-    # clear screen
-    push eax
-    xor eax, eax
-    mov ecx, 800*600
-    mov edi, [pframebuf]
-    rep stosd
-    pop eax
-    */
-    push eax		# extract x
+    mov ebx, eax		# extract x
     and eax, 0b00000000000011111111111000000000
     shr eax, 9
     mov edx, 800-16	# clamp x to 0..800-16
     cmp eax, edx
     cmova eax, edx
-    pop ebx		    # extract y
+                        # extract y
     and ebx, 0b01111111111100000000000000000000
     shr ebx, 20
     mov edx, 600-24	# clamp y to 0..600-24
@@ -185,7 +176,9 @@ next:
     // eax - x, ebx - y
     call PutPic16x24
 
-cont:
+9:  cmp ebx, 0x1ff # NextFrame
+    jne next
+
     mov eax, 300
     mov ebx, 160
     mov ecx, 0xff3388
@@ -272,54 +265,63 @@ PutLine16:
     pop ecx
     ret
 
+ClearScreen:
+    push eax
+    xor eax, eax
+    mov ecx, 800*600
+    mov edi, [pframebuf]
+    rep stosd
+    pop eax
+    ret
+
 # void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
 PutChar:
-        push ebp
-        mov ebp, esp
+    push ebp
+    mov ebp, esp
 
-        push edx        # [ebp-4] = esp -> [edx]  ebp -> [oldebp]
+    push edx        # [ebp-4] = esp -> [edx]  ebp -> [oldebp]
+    push ecx
+    push ebx
+    push eax
+
+    # x=[ebp-16] y=[ebp-12] color=[ebp-8] ch=[ebp-4]
+    sub esp, 8
+
+    mov ebx, offset font8x13
+    mov eax, [ebp - 4] # ch
+    imul eax, eax, 13
+    add ebx, eax
+    mov edi, [pframebuf]
+    add edi, [ebp - 16] # x
+    mov eax, [ebp - 12] # y
+    imul eax, eax, 800
+    add edi, eax
+
+    mov ecx, 13
+    putlet:
         push ecx
-        push ebx
-        push eax
+        mov ecx, 8
+        mov al, [ebx]
 
-        # x=[ebp-16] y=[ebp-12] color=[ebp-8] ch=[ebp-4]
-        sub esp, 8
+    putline:
+        test al, 0b10000000
+        jz zero
+    notzero:
+        mov esi, [ebp - 8] # color
+        mov dword ptr [edi], esi
+    zero:
+        shl al, 1
+        add edi, 4
+        loop putline
 
-        mov ebx, offset font8x13
-        mov eax, [ebp - 4] # ch
-        imul eax, eax, 13
-        add ebx, eax
-        mov edi, [pframebuf]
-        add edi, [ebp - 16] # x
-        mov eax, [ebp - 12] # y
-        imul eax, eax, 800
-        add edi, eax
-        mov ecx, 13
+    add edi, (800 - 8)*4
+    inc ebx
+    pop ecx
+    loop putlet
 
-           putlet:
-            push ecx
-            mov ecx, 8
-            mov al, [ebx]
-
-           putline:
-                test al, 0b10000000
-                jz zero
-           notzero:
-                mov esi, [ebp - 8] # color
-                mov dword ptr [edi], esi
-           zero:
-                shl al, 1
-                add edi, 4
-                loop putline
-
-            add edi, (800 - 8)*4
-            inc ebx
-            pop ecx
-            loop putlet
-
-        mov esp, ebp
-        pop ebp
-        ret
+    mov esp, ebp
+    pop ebp
+    ret
 
 // void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
 PutStr:

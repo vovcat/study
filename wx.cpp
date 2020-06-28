@@ -31,7 +31,7 @@ struct Key {
         Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
         MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
         /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
-        MAX = 0x1ff, SIZE = 0x200
+        NextFrame = 0x1ff, MAX = 0x1ff, SIZE = 0x200
     };
     enum StateEnum : int {
         StateShift =		0x01,
@@ -95,8 +95,9 @@ void getkey_stop_thread(void)
 
 #elif defined(WIN32)
 
-#include <queue>
 #include <windows.h>
+#include <avrt.h>
+#include <queue>
 
 template<typename T> struct cqueue
 {
@@ -105,7 +106,7 @@ template<typename T> struct cqueue
     CONDITION_VARIABLE cv;
     size_t size() const { EnterCriticalSection(&m); auto sz = q.size(); LeaveCriticalSection(&m); return sz; }
     T get() { EnterCriticalSection(&m); while (q.empty()) SleepConditionVariableCS(&cv, &m, INFINITE); T r = q.front(); q.pop(); LeaveCriticalSection(&m); return r; }
-    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); SwitchToThread(); }
     cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
 
@@ -118,7 +119,7 @@ void getkey_stop_thread(void)
 
 const unsigned FPS = 60;
 const unsigned FPS_DELAY = 1000 / FPS - 1;
-const int keydelay = 3900; //us
+const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
@@ -196,8 +197,10 @@ static struct sigaction timer_sa = {};
 static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
 {
     if (!timer_dpy || !timer_win) return;
+    // process the framebuffer refresh timer (vsync-like)
     RedrawWindow(timer_dpy, timer_win, timer_atom);
     XFlush(timer_dpy);
+    getkey_q.put(Key::NextFrame);
 }
 
 long timer_start(Display *dpy, Window win, Atom atom, int ms)
@@ -648,8 +651,20 @@ asm volatile (R"(
 
 DWORD WINAPI asm_main_call(void *)
 {
+    if(!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
+        MessageBox(NULL, "Can't set thread priority!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    }
+    // Ask MMCSS to temporarily boost the thread priority
+    DWORD taskIndex = 0;
+    HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Games"), &taskIndex);
+    if (hTask == NULL) {
+        MessageBox(NULL, "Can't set MmThreadCharacteristics!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    } else if (!AvSetMmThreadPriority(hTask, AVRT_PRIORITY_HIGH)) {
+        MessageBox(NULL, "Can't set MmThreadPriority!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    }
     //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
+    if (hTask) AvRevertMmThreadCharacteristics(hTask);
     return 0;
 }
 
@@ -726,11 +741,21 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             return 0;
         }
         case WM_PAINT: {
+            static unsigned prevtc = 0, prevdt = 0;
+            //unsigned tc = GetTickCount();
+            unsigned tc = timeGetTime();
+            unsigned dt = tc - prevtc;
+            if (dt != prevdt) printf("[%d] GetTickCount() = %d\n", tc, tc - prevtc);
+            prevdt = dt;
+            prevtc = tc;
+            //if (getkey_q.size()) return 0;
+
             PAINTSTRUCT ps = {};
             HDC hdc = BeginPaint(hWnd, &ps);
             BitBlt(hdc, 0, 0, FB_WIDTH, FB_HEIGHT, gdcMem, 0, 0, SRCCOPY);
             EndPaint(hWnd, &ps);
             nredraws++;
+            getkey_q.put(Key::NextFrame);
             return 0;
         }
         case WM_ERASEBKGND: {
@@ -738,7 +763,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
         case WM_MOVE:
         case WM_SIZE: {
-            GetClientRect(hWnd, &rcClient);
+            GetWindowRect(hWnd, &rcClient);
             break;
         }
 
@@ -962,6 +987,11 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     ShowWindow(hWnd, nCmdShow);
     GdiFlush();
     UpdateWindow(hWnd);
+
+    if(!SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
+        MessageBox(NULL, "Can't set priority class!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+        return 1;
+    }
 
     timeBeginPeriod(1); // minimum timer resolution, in milliseconds
     auto start = std::chrono::high_resolution_clock::now();
