@@ -200,7 +200,6 @@ static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
     // process the framebuffer refresh timer (vsync-like)
     RedrawWindow(timer_dpy, timer_win, timer_atom);
     XFlush(timer_dpy);
-    getkey_q.put(Key::NextFrame);
 }
 
 long timer_start(Display *dpy, Window win, Atom atom, int ms)
@@ -501,6 +500,7 @@ int main(int argc, char *argv[])
                 Drawable w = dbe ? dbe : win;
                 if (shared_pixmaps) XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
                 else XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                getkey_q.put(Key::NextFrame);
                 nredraws++;
                 break;
             }
