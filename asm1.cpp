@@ -218,7 +218,8 @@ animate:
 
 star.x = 0
 star.y = 4
-star.v = 8
+star.vx = 8
+star.vy = 12
 
 /*
 star s1 = { 0, 100, 8 };
@@ -228,47 +229,58 @@ star s2 = { 100, 500, 6 };
 star1:
     animate_x:  .int 0
     animate_y:  .int 500
-    animate_v:  .int 6
+    animate_vx:  .int 8
+    animate_vy:  .int 6
 
 star2:
     animate_x2:  .int 100
     animate_y2:  .int 100
-    animate_v2:  .int 8
+    animate_vx2:  .int 1
+    animate_vy2:  .int 1
 
 // function animate_star(star *s (eax));
 
 animate_star:
     mov esi, eax
-    mov ecx, 32
-    xor eax, eax
-    mov edi, [esi + star.y]
-    imul edi, 800
-    add edi, [esi + star.x]
-    shl edi, 2
-    add edi, [pframebuf]
-    mov ecx, 32
-1:  mov ebx, ecx
-    mov ecx, 32
-    rep stosd
-    add edi, (800 - 32) * 4
-    mov ecx, ebx
-    loop 1b
-
-    mov eax, [esi + 0]
-    add eax, [esi + 8]
+    mov eax, [esi + star.x]
+    mov ebx, [esi + star.y]
+    xor ecx, ecx
+    call Clear32x32
+    mov eax, [esi + star.x]
+    add eax, [esi + star.vx]
     cmp eax, 800 - 32
     jle 1f
-    neg dword ptr [esi + 8] # v
+    neg dword ptr [esi + star.vx]
     mov eax, 800 - 32
 1:  cmp eax, 0
     jg 1f
-    neg dword ptr [esi + 8] # v
+    neg dword ptr [esi + star.vx]
     mov eax, 0
-1:  mov [esi + 0], eax
-    mov ebx, [esi + 4]
+1:  mov [esi + star.x], eax
+
+    mov ebx, [esi + star.y]
+    add ebx, [esi + star.vy]
+    cmp ebx, 600 - 32
+    jle 1f
+    neg dword ptr [esi + star.vy]
+    mov ebx, 600 - 32
+1:  cmp ebx, 0
+    jg 1f
+    neg dword ptr [esi + star.vy]
+    mov ebx, 0
+1:  mov [esi + star.y], ebx
+
     call PutStar
     ret
 
+// void PutStarC(int x, y)
+// void PutStar(int (eax) x, (ebx) y)
+
+    .global _PutStarC
+_PutStarC:
+PutStarC:
+    mov eax, [esp + 4]
+    mov ebx, [esp + 8]
 PutStar:
     pusha
     imul edi, ebx, 800
@@ -298,10 +310,33 @@ PutStar:
     popa
     ret
 
-#
-# void PutPic16x24(int (edi) offset_in_pframebuff_in_bytes)
-# void PutPic16x24(int (eax) x, (ebx) y)
-#
+// void Clear32x32C(int x, y, color)
+// void Clear32x32(int (eax) x, (ebx) y, (ecx) color)
+
+    .global _Clear32x32C
+_Clear32x32C:
+Clear32x32C:
+    mov eax, [esp + 4]
+    mov ebx, [esp + 8]
+    mov ecx, [esp + 12]
+Clear32x32:
+    mov edi, ebx
+    imul edi, 800
+    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
+    mov eax, ecx
+    mov ecx, 32
+1:  mov ebx, ecx
+    mov ecx, 32
+    rep stosd
+    add edi, (800 - 32) * 4
+    mov ecx, ebx
+    loop 1b
+    ret
+
+// void PutPic16x24(int (edi) offset_in_pframebuff_in_bytes)
+// void PutPic16x24(int (eax) x, (ebx) y)
 
 PutPic16x24:
     imul edi, ebx, 800
@@ -322,6 +357,8 @@ PutLine16:
     pop ecx
     ret
 
+// void ClearScreen()
+
 ClearScreen:
     push eax
     xor eax, eax
@@ -331,7 +368,8 @@ ClearScreen:
     pop eax
     ret
 
-# void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
+// void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
+
 PutChar:
     push ebp
     mov ebp, esp
@@ -361,13 +399,12 @@ PutChar:
         mov al, [ebx]
 
     putline:
-        test al, 0b10000000
-        jz zero
+        shl al, 1
+        jnc zero
     notzero:
         mov esi, [ebp - 8] # color
         mov dword ptr [edi], esi
     zero:
-        shl al, 1
         add edi, 4
         loop putline
 
@@ -381,6 +418,7 @@ PutChar:
     ret
 
 // void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
+
 PutStr:
     push edx
     push ecx
@@ -434,4 +472,55 @@ asm_end:
 asm_exit:
         {.att_syntax noprefix | }
     )" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
+}
+
+
+extern "C" {
+    // import
+    void Clear32x32C(int x, int y, int color);
+    void PutStarC(int x, int y);
+    // export
+    void animate_starC(struct star *s);
+    void animateC();
+}
+
+struct star {
+    int x;
+    int y;
+    int vx;
+    int vy;
+};
+
+void animate_starC(struct star *s)
+{
+    Clear32x32C(s->x, s->y, 9548987835*0);
+    s->x = s->x + s->vx;
+    if (s->x >= 800-32) {
+        s->vx = -s->vx;
+        s->x = 800-32;
+    }
+    if (s->x <= 0) {
+        s->vx = -s->vx;
+        s->x = 0;
+    }
+    s->y = s->y + s->vy;
+    if (s->y >= 600-32) {
+        s->vy = -s->vy;
+        s->y = 600-32;
+    }
+    if (s->y <= 0) {
+        s->vy = -s->vy;
+        s->y = 0;
+    }
+
+    PutStarC(s->x, s->y);
+}
+
+star star1c = {200, 100, 8, 6};
+star star2c = {300, 500, 1, 1};
+
+void animateC()
+{
+    animate_starC(&star1c);
+    animate_starC(&star2c);
 }
