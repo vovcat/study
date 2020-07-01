@@ -325,8 +325,16 @@ animate_star:
     .global _PutStarC
 _PutStarC:
 PutStarC:
-    mov eax, [esp + 4]
-    mov ebx, [esp + 8]
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16]
+    mov ebx, [esp + 20]
+    call PutStar
+    pop edi
+    pop esi
+    pop ebx
+    ret
 PutStar:
     pusha
     imul edi, ebx, 800
@@ -362,12 +370,19 @@ PutStar:
     .global _Clear32x32C
 _Clear32x32C:
 Clear32x32C:
-    mov eax, [esp + 4]
-    mov ebx, [esp + 8]
-    mov ecx, [esp + 12]
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16]
+    mov ebx, [esp + 20]
+    mov ecx, [esp + 24]
+    call Clear32x32
+    pop edi
+    pop esi
+    pop ebx
+    ret
 Clear32x32:
-    mov edi, ebx
-    imul edi, 800
+    imul edi, ebx, 800
     add edi, eax
     shl edi, 2
     add edi, [pframebuf]
@@ -383,44 +398,194 @@ Clear32x32:
 
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
+    .global _PutCircleC
+_PutCircleC:
+PutCircleC:
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16]
+    mov ebx, [esp + 20]
+    mov ecx, [esp + 24]
+    mov edx, [esp + 28]
+    call PutCircle
+    pop edi
+    pop esi
+    pop ebx
+    ret
 PutCircle:
-    push eax
-    push eax
+    push ebp
+    mov ebp, esp
+
     push edx
-    imul edx, edx
     push ecx
     push ebx
     push eax
-    # [esp+0] -> x
-    # [esp+4] -> y
-    # [esp+8] -> colour
-    # [esp+12] -> radius
-    # [esp+16] -> savedx
-    # [esp+20] -> savedy
-loopy:
-    sub eax, [esp + 12]
-    sub ebx, [esp + 12]
-loopx:
-    mov [esp+16], eax # savedx
-    sub eax, [esp] # x
-    imul eax, eax
-    mov [esp+20], ebx # savedy
-    sub ebx, [esp + 4] # y
-    imul ebx, ebx
-    add eax, ebx
-    cmp eax, edx
-    mov eax, [esp+16] # savedx
-    mov ebx, [esp+20] # savedy
-    ja 1f
-    call PutPix
-1:  inc eax
-    cmp eax, 800
-    jb loopx
+    sub esp, 8
+
+    ebp.ptop = -24; ebp.pbot = -20
+    ebp.xc = -16; ebp.yc = -12
+    ebp.colour = -8; ebp.radius = -4
+
+    /*
+    edx = r*r;
+    ptop = pbot = &pframebuf[yc][xc];
+    for (yi = 0; yi < r; yi++):		// ebx
+           xi = 0;			// eax
+           ecx = yi*yi;
+           do xi++ while (xi < r && xi*xi + ecx < edx);
+           ecx = xi * 2 - 1;
+           PutLine(ptop - xi*4, ecx, colour);
+           PutLine(pbot - xi*4, ecx, colour);
+       ptop -= 800*4;
+       pbot += 800*4;
+    */
+
+    imul edx, edx		# edx = r^2
+    imul edi, ebx, 800		# edi = &pframebuf[yc][xc]
+    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
+    mov [ebp + ebp.ptop], edi	# ptop = edi
+    mov [ebp + ebp.pbot], edi	# pbot = edi
+
+    xor ebx, ebx
+1:  xor eax, eax		# xi = 0
+    mov ecx, ebx
+    imul ecx, ebx		# ecx = yi^2
+    mov edi, [ebp + ebp.radius]	# edi = r
+2:  inc eax			# xi++
+    cmp eax, edi
+    jge 3f
+    mov esi, eax		# eax: xi, ebx: yi, ecx:yi^2, edx:r^2, esi:-, edi:-
+    imul esi, eax		# esi = xi^2
+    add esi, ecx		# esi = xi^2 + yi^2
+    cmp esi, edx
+    jl 2b
+3:  mov esi, eax
+    shl esi, 1			# esi = xi * 2
+
+    # @now: eax:xi*4, ebx:yi, ecx:-, edx:r^2, esi:xi*2, edi:-
+    # @stosd: eax:COLOUR, ebx:yi, ecx:xi*2-1, edx:r^2, esi:SAVECX, edi:PTR
+    mov eax, [ebp + ebp.colour]
+
+    lea edi, [esi * 2]		# edi = xi*4
+    neg edi			# edi = -xi*4
+    add edi, [ebp + ebp.ptop]	# edi = ptop - xi*4
+    lea ecx, [esi - 1]		# ecx = xi * 2 - 1
+    rep stosd es:[edi], eax	# PutLine(ptop - xi*4, ecx, colour)
+
+    lea edi, [esi * 2]		# edi = xi*4
+    neg edi			# edi = -xi*4
+    add edi, [ebp + ebp.pbot]	# edi = ptop - xi*4
+    lea ecx, [esi - 1]		# ecx = xi * 2 - 1
+    rep stosd es:[edi], eax	# PutLine(pbot - xi*4, ecx, colour)
+
+    sub dword ptr [ebp + ebp.ptop], 800*4	# ptop -= 800*4
+    add dword ptr [ebp + ebp.pbot], 800*4	# pbot += 800*4
 
     inc ebx
-    cmp ebx, 600
-    jb loopy
-    add esp, 24
+    cmp ebx, [ebp + ebp.radius]
+    jl 1b
+
+    mov esp, ebp
+    pop ebp
+    ret
+
+    .global _PutCircleC2
+_PutCircleC2:
+PutCircleC2:
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16]
+    mov ebx, [esp + 20]
+    mov ecx, [esp + 24]
+    mov edx, [esp + 28]
+    call PutCircle2
+    pop edi
+    pop esi
+    pop ebx
+    ret
+PutCircle2:
+    push ebp
+    mov ebp, esp
+
+    push edx
+    push ecx
+    push ebx
+    push eax
+    sub esp, 8
+
+    ebp.ptop = -24; ebp.pbot = -20
+    ebp.xc = -16; ebp.yc = -12
+    ebp.colour = -8; ebp.radius = -4
+
+    /*
+    edx = r*r;
+    ptop = pbot = &pframebuf[yc][xc];
+    for (yi = 0; yi < r; yi++):		// ebx
+           xi = 0;			// eax
+           ecx = yi*yi;
+           do xi++ while (xi < r && xi*xi + ecx < edx);
+           ecx = xi * 2 - 1;
+           PutLine(ptop - xi*4, ecx, colour);
+           PutLine(pbot - xi*4, ecx, colour);
+       ptop -= 800*4;
+       pbot += 800*4;
+    */
+
+    imul edx, edx		# edx = r^2
+    imul edi, ebx, 800		# edi = &pframebuf[yc][xc]
+    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
+    mov [ebp + ebp.ptop], edi	# ptop = edi
+    mov [ebp + ebp.pbot], edi	# pbot = edi
+
+    xor ebx, ebx
+1:  xor eax, eax		# xi = 0
+    mov ecx, ebx
+    imul ecx, ebx		# ecx = yi^2
+    mov edi, [ebp + ebp.radius]	# edi = r
+2:  inc eax			# xi++
+    cmp eax, edi
+    jge 3f
+    mov esi, eax		# eax: xi, ebx: yi, ecx:yi^2, edx:r^2, esi:-, edi:-
+    imul esi, eax		# esi = xi^2
+    add esi, ecx		# esi = xi^2 + yi^2
+    cmp esi, edx
+    jl 2b
+3:  shl eax, 1			# eax = xi * 2
+    mov ecx, eax		# ecx = xi * 2
+    dec ecx			# ecx = xi * 2 - 1
+    shl eax, 1			# eax = xi * 4
+
+    # @now: eax:xi*4, ebx:yi, ecx:xi*2-1, edx:r^2, esi:-, edi:-
+    # @stosd: stack:xi*4, eax:COLOUR, ebx:yi, ecx:xi*2-1, edx:r^2, esi:SAVECX, edi:PTR
+
+    mov esi, ecx		# save ecx
+    push eax
+    mov edi, [ebp + ebp.ptop]
+    sub edi, eax		# edi = ptop - xi*4
+    mov eax, [ebp + ebp.colour]
+    rep stosd es:[edi], eax	# PutLine(ptop - xi*4, ecx, colour)
+
+    mov ecx, esi		# restore ecx
+    pop esi
+    mov edi, [ebp + ebp.pbot]
+    sub edi, esi		# edi = pbot - xi*4
+    rep stosd es:[edi], eax	# PutLine(pbot - xi*4, ecx, colour)
+
+    sub dword ptr [ebp + ebp.ptop], 800*4	# ptop -= 800*4
+    add dword ptr [ebp + ebp.pbot], 800*4	# pbot += 800*4
+
+    inc ebx
+    cmp ebx, [ebp + ebp.radius]
+    jl 1b
+
+    mov esp, ebp
+    pop ebp
     ret
 
 // void PutPix(int (eax) x, (ebx) y, (ecx) colour)
@@ -433,7 +598,6 @@ PutPix:
     mov [edi], ecx
     ret
 
-// void PutPic16x24(int (edi) offset_in_pframebuff_in_bytes)
 // void PutPic16x24(int (eax) x, (ebx) y)
 
 PutPic16x24:
@@ -577,6 +741,8 @@ extern "C" {
     // import
     void Clear32x32C(int x, int y, int color);
     void PutStarC(int x, int y);
+    void PutCircleC(int x, int y, int color, int radius);
+    void PutCircleC2(int x, int y, int color, int radius);
     // export
     void animate_starC(struct star *s);
     void animateC();
@@ -622,3 +788,88 @@ void animateC()
     animate_starC(&star1c);
     animate_starC(&star2c);
 }
+
+#ifdef MAIN
+// g++ -DMAIN -fno-pic -fno-pie -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti asm1.cpp && ./a.out
+// i686-w64-mingw32-g++ -DMAIN -fno-pic -fno-pie -mconsole -static-libgcc -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti asm1.cpp && wine ./a.exe
+
+#include <stdio.h>
+
+typedef unsigned long long uint64_t;
+
+framebuf_t framebuf;
+framebuf_t *pframebuf = &framebuf;
+int waitkey(void) { return 0; }
+int getkey(void) { return 0; }
+char font8x13[13*256];
+
+#ifdef WIN32
+asm volatile (R"(
+    // export
+    pframebuf = _pframebuf
+    waitkey = _waitkey
+    getkey = _getkey
+    font8x13 = _font8x13
+)");
+#endif
+
+uint64_t rdtsc (void)
+{
+    unsigned tickl, tickh;
+    asm ("rdtsc" : "=a" (tickl), "=d" (tickh));
+    return (uint64_t) tickh << 32 | tickl;
+}
+
+int main()
+{
+    uint64_t beg, end;
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        asm volatile ("");
+    }
+    end = rdtsc();
+    uint64_t eloop = end - beg;
+    printf("eloop = %.2f\n", 1.0/1000000 * eloop);
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        PutCircleC2(100, 100, 0xff1133, 44);
+    }
+    end = rdtsc();
+    uint64_t PutCircle2 = end - beg;
+    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle2);
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        PutCircleC(100, 100, 0xff1133, 44);
+    }
+    end = rdtsc();
+    uint64_t PutCircle1 = end - beg;
+    printf("PutCircle1 = %.2f\n", 1.0/1000000 * PutCircle1);
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        PutCircleC(100, 100, 0xff1133, 44);
+    }
+    end = rdtsc();
+    uint64_t PutCircle11 = end - beg;
+    printf("PutCircle1 = %.2f\n", 1.0/1000000 * PutCircle11);
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        PutCircleC2(100, 100, 0xff1133, 44);
+    }
+    end = rdtsc();
+    uint64_t PutCircle21 = end - beg;
+    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle21);
+
+    beg = rdtsc();
+    for (int i = 0; i < 100000; i++) {
+        PutCircleC2(100, 100, 0xff1133, 44);
+    }
+    end = rdtsc();
+    uint64_t PutCircle22 = end - beg;
+    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle22);
+}
+#endif
