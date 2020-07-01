@@ -54,8 +54,7 @@ void asm_main_text(void)
     .section data1, "awx"
 
 #.=0040d000
-dot: .int .
-
+dt: .int .
     .align 16
 
 pic:
@@ -86,8 +85,8 @@ pic:
 star:
     .incbin "star.bmp", 54, 32*32*3
 
-hello:  .string "dot=xxxxxxxx"
-hex:    .string "0123456789abcdef"
+dot:   .string "dot=xxxxxxxx"
+hex:   .string "0123456789abcdef"
 
     .align 8
 asm_main:
@@ -136,7 +135,7 @@ asm_main:
     #esp      = 02d0ff50 = 46 Mb 143 kb
 
     mov edx, [pframebuf]
-    mov edi, offset hello+4
+    mov edi, offset dot+4
     mov ecx, 8
 1:  # 0x12345678
     rol edx, 4
@@ -151,7 +150,7 @@ asm_main:
     mov eax, 300
     mov ebx, 160
     mov ecx, 0xff3388
-    mov edx, offset hello
+    mov edx, offset dot
     call PutStr
 
     mov eax, 300
@@ -191,6 +190,13 @@ asm_main:
     mov ecx, 0xffffff
     mov edx, 60
     call PutCircle
+
+    mov eax, 600
+    mov ebx, 540
+    mov ecx, 0xff3388
+    mov edx, 'B'
+    call PutChar
+
 
     //     _________   _________   _______
     // | |/   11    \ /   11    \ /   9   \  = size
@@ -228,10 +234,10 @@ next:
 
     call animate
 
-    mov eax, 300
-    mov ebx, 160
+    mov eax, 600
+    mov ebx, 460
     mov ecx, 0xff3388
-    mov edx, offset hello
+    mov edx, offset dot
     call PutStr
 
     mov eax, 200
@@ -253,6 +259,14 @@ animate:
     # animate_star(&star2);
     mov eax, offset star2
     call animate_star
+
+    # animate_str(&str1);
+    mov eax, offset str1
+    call animate_str
+
+    # animate_str(&str2);
+    mov eax, offset str2
+    call animate_str
 
     ret
 
@@ -630,29 +644,112 @@ ClearScreen:
     pop eax
     ret
 
+str.x = 0
+str.y = 4
+str.vx = 8
+str.vy = 12
+str.color = 16
+str.string = 20
+str.len = 24
+
+aiur:  .string "My life for Aiur!"
+str1:
+    /* x*/  .int 130
+    /* y*/  .int 130
+    /*vx*/  .int 4
+    /*vy*/  .int 6
+    /*col*/ .int 0xff55aaff
+    /*str*/ .int aiur
+    /*len*/ .int 17
+
+hello: .string "Hello there!"
+str2:
+    /* x*/  .int 555
+    /* y*/  .int 444
+    /*vx*/  .int 2
+    /*vy*/  .int 2
+    /*col*/ .int 0xff00ff00
+    /*str*/ .int hello
+    /*len*/ .int 12
+
+animate_str:
+    mov esi, eax
+    mov eax, [esi + str.x]
+    mov ebx, [esi + str.y]
+    xor ecx, ecx
+    mov edx, [esi + str.string]
+    pusha
+    call PutStr
+    popa
+
+    mov edi, [esi + str.len]
+    shl edi, 3
+
+    mov eax, [esi + str.x]
+    add eax, [esi + str.vx]
+    add eax, edi
+    cmp eax, 800
+    jl 1f
+    neg dword ptr [esi + str.vx]
+    mov eax, 800
+1:  sub eax, edi
+    cmp eax, 0
+    jg 1f
+    neg dword ptr [esi + str.vx]
+    mov eax, 0
+1:  mov [esi + str.x], eax
+
+    mov ebx, [esi + str.y]
+    add ebx, [esi + str.vy]
+    add ebx, 13
+    cmp ebx, 600
+    jl 1f
+    neg dword ptr [esi + str.vy]
+    mov ebx, 600
+1:  sub ebx, 13
+    cmp ebx, 0
+    jg 1f
+    neg dword ptr [esi + str.vy]
+    mov ebx, 0
+1:  mov [esi + str.y], ebx
+
+    mov ecx, [esi + str.color]
+    call PutStr
+    ret
+
+// int str_len_count(char* (edx) s)
+
+str_len_count:
+    mov edi, edx
+1:  mov al, byte ptr [edi]
+    inc edi
+    test al, al
+    jnz 1b
+    dec edi
+    sub edi, edx
+    mov dword ptr [esi + str.len], edi
+    ret
+
 // void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
 
 PutChar:
     push ebp
     mov ebp, esp
 
-    push edx        # [ebp-4] = esp -> [edx]  ebp -> [oldebp]
+    push edx
     push ecx
     push ebx
     push eax
-
     # x=[ebp-16] y=[ebp-12] color=[ebp-8] ch=[ebp-4]
-    sub esp, 8
 
     mov ebx, offset font8x13
     mov eax, [ebp - 4] # ch
     imul eax, eax, 13
-    add ebx, eax
-    mov edi, [pframebuf]
+    add ebx, eax                # ebx - font char data
+    imul edi, [ebp - 12], 800 # y
     add edi, [ebp - 16] # x
-    mov eax, [ebp - 12] # y
-    imul eax, eax, 800
-    add edi, eax
+    shl edi, 2
+    add edi, [pframebuf]
 
     mov ecx, 13
     putlet:
@@ -674,7 +771,6 @@ PutChar:
     inc ebx
     pop ecx
     loop putlet
-
     mov esp, ebp
     pop ebp
     ret
@@ -696,7 +792,7 @@ PutStr:
     mov ebx, [esp + 4]
     mov eax, [esp]
     call PutChar
-    add dword ptr [esp], 8*4
+    add dword ptr [esp], 8
     inc dword ptr [esp + 12]
     jmp 1b
 2:  add esp, 16
