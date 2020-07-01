@@ -254,6 +254,12 @@ animate:
     mov eax, offset star2
     call animate_star
 
+    mov eax, offset Circle1
+    call animate_circle
+
+    mov eax, offset Circle2
+    call animate_circle
+
     ret
 
 /* struct star {
@@ -397,6 +403,73 @@ Clear32x32:
     ret
 
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
+
+Circle1:
+    animate_circle_x:  .int 90
+    animate_circle_y:  .int 400
+    animate_circle_vx:  .int 8
+    animate_circle_vy:  .int 6
+    animate_circle_colour:  .int 0x3929FDBB
+    animate_circle_radius:  .int 76
+
+Circle2:
+    animate_circle_x2:  .int 140
+    animate_circle_y2:  .int 340
+    animate_circle_vx2:  .int 1
+    animate_circle_vy2:  .int 1
+    animate_circle_colour2:  .int 0xff2288
+    animate_circle_radius2:  .int 38
+
+circle.x = 0
+circle.y = 4
+circle.vx = 8
+circle.vy = 12
+circle.colour = 16
+circle.radius = 20
+
+animate_circle:
+    mov esi, eax
+    inc dword ptr [esi + circle.vy]
+
+    mov eax, [esi + circle.x]
+    mov ebx, [esi + circle.y]
+    mov ecx, 0
+    mov edx, [esi + circle.radius]
+    pusha
+    call PutCircle
+    popa
+    mov ecx, [esi + circle.colour]
+
+    mov eax, [esi + circle.x]
+    add eax, [esi + circle.vx]
+    mov edi, 800
+    sub edi, [esi + circle.radius]
+    cmp eax, edi
+    jl 1f
+    neg dword ptr [esi + circle.vx]
+    mov eax, edi
+1:  cmp eax, [esi + circle.radius]
+    jg 1f
+    neg dword ptr [esi + circle.vx]
+    mov eax, [esi + circle.radius]
+1:  mov [esi + circle.x], eax
+
+    mov ebx, [esi + circle.y]
+    add ebx, [esi + circle.vy]
+    mov edi, 600
+    sub edi, [esi + circle.radius]
+    cmp ebx, edi
+    jl 1f
+    neg dword ptr [esi + circle.vy]
+    mov ebx, edi
+1:  cmp ebx, [esi + circle.radius]
+    jg 1f
+    neg dword ptr [esi + circle.vy]
+    mov ebx, [esi + circle.radius]
+1:  mov [esi + circle.y], ebx
+
+    call PutCircle
+    ret
 
     .global _PutCircleC
 _PutCircleC:
