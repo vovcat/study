@@ -295,7 +295,7 @@ animate_star:
     mov eax, [esi + star.x]
     add eax, [esi + star.vx]
     cmp eax, 800 - 32
-    jle 1f
+    jl 1f
     neg dword ptr [esi + star.vx]
     mov eax, 800 - 32
 1:  cmp eax, 0
@@ -307,7 +307,7 @@ animate_star:
     mov ebx, [esi + star.y]
     add ebx, [esi + star.vy]
     cmp ebx, 600 - 32
-    jle 1f
+    jl 1f
     neg dword ptr [esi + star.vy]
     mov ebx, 600 - 32
 1:  cmp ebx, 0
