@@ -89,6 +89,8 @@ s1:    .string "0123456789012345678901234567890123456789012345678901234567890123
 
     .align 8
 asm_main:
+    call srand
+
 /*
     # 260,400
     mov eax, 400
@@ -139,15 +141,15 @@ asm_main:
     call str_len
 
     mov edx, eax
-    mov edi, offset dot+4
+    mov edi, offset dot + 4
     mov ecx, 8
 1:  # 0x12345678
     rol edx, 4
     # 0x23456781
     mov eax, edx
     and eax, 0x0f
-    # 1 (00.0f)
-    mov al, [hex+eax]
+    # 1 (00..0f)
+    mov al, [hex + eax]
     stosb # al -> [edi], edi++
     loop 1b
 
@@ -216,9 +218,9 @@ next:
     call getkey
     mov ebx, eax
     and ebx, 0b111111111
-    cmp ebx, 0x1d0 # MouseMove
-    jne 9f
-
+    cmp ebx, 0x1d1 # MouseLeft
+    jne chkMouseMove
+/*
     mov ebx, eax	# extract x
     and eax, 0b00000000000011111111111000000000
     shr eax, 9
@@ -234,13 +236,29 @@ next:
 
     // eax - x, ebx - y
     call PutPic16x24
+*/
 
-9:  cmp ebx, 0x1ff # NextFrame
+    // void mouse_circle(key eax);
+    call mouse_circle
+    jmp next
+
+chkMouseMove:
+    cmp ebx, 0x1d0 # MouseMove
+    jne chkNextFrame
+
+        // .....
+
+    jmp next
+
+chkNextFrame:
+    cmp ebx, 0x1ff # NextFrame
     jne next
 
-    #call animate
+    call animate
 
-    mov ecx, 300	# pix per frame
+/*
+    # fill_rand
+    mov ecx, 300	# pixels per frame
 1:  push ecx
     call rand
     xor edx, edx
@@ -256,13 +274,26 @@ next:
     call PutPix
     pop ecx
     loop 1b
+*/
 
     jmp next
-    jmp endpic
+
+//
+// LCG PRNG - Linear Congruential Generator as Pseudo-Random Number Generator
+//
 
     .align 8
 seed:
     .int 1
+
+// void srand(void)
+
+srand:
+    rdtsc
+    mov [seed], eax
+    ret
+
+// int rand(void)
 
 rand:
     mov eax, 973656667
@@ -272,6 +303,8 @@ rand:
     mov [seed], eax
     ret
 
+// int rand_good(void)
+
 rand_good:
     mov eax, 0x01010101
     mul dword ptr [seed] # edx:eax
@@ -279,6 +312,10 @@ rand_good:
     shrd eax, edx, 6
     mov [seed], eax
     ret
+
+//
+// void animate(void)
+//
 
 animate:
     # animate_star(&star1); // is equivalent of animate_s1();
@@ -289,11 +326,13 @@ animate:
     mov eax, offset star2
     call animate_star
 
+/*
     mov eax, offset Circle1
     call animate_circle
 
     mov eax, offset Circle2
     call animate_circle
+*/
 
     # animate_str(&str1);
     mov eax, offset str1
@@ -303,6 +342,19 @@ animate:
     mov eax, offset str2
     call animate_str
 
+    mov eax, offset circles
+    mov ebx, 0
+1:  cmp ebx, [n_circles]
+    jge 2f
+    push eax
+    push ebx
+    call animate_circle
+    pop ebx
+    pop eax
+    inc ebx
+    add eax, 24
+    jmp 1b
+2:
     mov eax, 640
     mov ebx, 580
     mov ecx, 0xff3388
@@ -310,6 +362,10 @@ animate:
     call PutStr
 
     ret
+
+//
+// STAR
+//
 
 star.x = 0
 star.y = 4
@@ -367,7 +423,6 @@ animate_star:
     ret
 
 // void PutStarC(int x, y)
-// void PutStar(int (eax) x, (ebx) y)
 
     .global _PutStarC
 _PutStarC:
@@ -382,6 +437,9 @@ PutStarC:
     pop esi
     pop ebx
     ret
+
+// void PutStar(int (eax) x, (ebx) y)
+
 PutStar:
     pusha
     imul edi, ebx, 800
@@ -412,7 +470,6 @@ PutStar:
     ret
 
 // void Clear32x32C(int x, y, color)
-// void Clear32x32(int (eax) x, (ebx) y, (ecx) color)
 
     .global _Clear32x32C
 _Clear32x32C:
@@ -428,6 +485,9 @@ Clear32x32C:
     pop esi
     pop ebx
     ret
+
+// void Clear32x32(int (eax) x, (ebx) y, (ecx) color)
+
 Clear32x32:
     imul edi, ebx, 800
     add edi, eax
@@ -443,7 +503,10 @@ Clear32x32:
     loop 1b
     ret
 
-// void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
+
+//
+// CIRCLE
+//
 
 circle.x = 0
 circle.y = 4
@@ -451,6 +514,7 @@ circle.vx = 8
 circle.vy = 12
 circle.colour = 16
 circle.radius = 20
+circle_size = 24
 
     .align 8
 Circle1:
@@ -470,6 +534,69 @@ Circle2:
     /* colour */ .int 0xff2288
     /* radius */ .int 38
 
+circles_max = 100
+
+circles:
+    .space circle_size * circles_max, 0
+
+n_circles:
+    .int 0
+
+// void mouse_circle(key eax)
+
+mouse_circle:
+    cmp dword ptr [n_circles], circles_max
+    jge 1f
+
+    mov ebx, eax	# extract x
+    and eax, 0b00000000000011111111111000000000
+    shr eax, 9
+    mov edx, 800-16	# clamp x to 0..800-16
+    cmp eax, edx
+    cmova eax, edx
+                        # extract y
+    and ebx, 0b01111111111100000000000000000000
+    shr ebx, 20
+    mov edx, 600-24	# clamp y to 0..600-24
+    cmp ebx, edx
+    cmova ebx, edx
+
+    imul esi, [n_circles], circle_size
+    add esi, offset circles
+
+    mov [esi + circle.x], eax               #x
+    mov [esi + circle.y], ebx               #y
+
+    call rand                               #colour
+    mov [esi + circle.colour], eax          #|
+
+    call rand                               #radius
+    xor edx, edx                            #|
+    mov ebx, 60                             #|
+    div ebx                                 #|
+    add edx, 10                             #|
+    mov [esi + circle.radius], edx          #|
+
+    call rand                               #radius
+    xor edx, edx                            #|
+    mov ebx, 60                             #|
+    div ebx                                 #|
+    sub edx, 30                             #|
+    mov [esi + circle.vx], edx              #|
+
+    call rand                               #radius
+    xor edx, edx                            #|
+    mov ebx, 60                             #|
+    div ebx                                 #|
+    sub edx, 30                             #|
+    mov [esi + circle.vy], edx              #|
+
+    inc dword ptr [n_circles]
+
+1:  ret
+
+// void animate_circle(circle *eax)
+
 animate_circle:
     mov esi, eax
 
@@ -485,12 +612,24 @@ animate_circle:
 
     mov eax, [esi + circle.x]
     mov ebx, [esi + circle.y]
-    xor ecx, ecx
     mov edx, [esi + circle.radius]
+    cmp eax, edx
+    jl 1f
+    mov ecx, 800
+    sub ecx, edx
+    cmp eax, ecx
+    jg 1f
+    cmp ebx, edx
+    jl 1f
+    mov ecx, 600
+    sub ecx, edx
+    cmp ebx, ecx
+    jg 1f
     pusha
+    xor ecx, ecx
     call PutCircle
     popa
-
+1:
     mov eax, [esi + circle.x]
     add eax, [esi + circle.vx]
     mov edi, 800
@@ -522,6 +661,8 @@ animate_circle:
     mov ecx, [esi + circle.colour]
     call PutCircle
     ret
+
+// void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
     .global _PutCircleC
 _PutCircleC:
@@ -755,6 +896,11 @@ ClearScreen:
     pop eax
     ret
 
+
+//
+// STRING
+//
+
 str.x = 0
 str.y = 4
 str.vx = 8
@@ -786,6 +932,8 @@ str2:
     /*len*/ .int 12
 
 hello: .string "Hello there!"
+
+// void animate_str(str *eax)
 
 animate_str:
     mov esi, eax
@@ -844,19 +992,6 @@ str_len:
     pop ecx
     not eax
     dec eax
-    ret
-
-// int str_len_count(char* (edx) str)
-
-str_len_count:
-    mov edi, edx
-1:  mov al, byte ptr [edi]
-    inc edi
-    test al, al
-    jnz 1b
-    dec edi
-    sub edi, edx
-    mov dword ptr [esi + str.len], edi
     ret
 
 // void PutChar(int (eax) x, (ebx) y, (ecx) color, (edx) ch)
@@ -927,6 +1062,7 @@ PutStr:
 2:  add esp, 16
     ret
 
+
 endpic:
     # draw cross
     mov eax, [pframebuf]
@@ -979,7 +1115,6 @@ asm_exit:
         {.att_syntax noprefix | }
     )" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
 }
-
 
 extern "C" {
     // import
