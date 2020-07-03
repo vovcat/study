@@ -49,9 +49,7 @@ void asm_main_text(void)
         {.intel_syntax noprefix | }
         call asm_main
         jmp asm_exit
-        .global asm_main
-
-    .section data1, "awx"
+        .section data1, "awx"
 
 #.=0040d000
 dt: .int .
@@ -87,9 +85,11 @@ star:
 
 dot:   .string "dot=xxxxxxxx"
 hex:   .string "0123456789abcdef"
+s1:    .string "01234567890123456789012345678901234567890123456789012345678901234567890123456789"
 
     .align 8
 asm_main:
+/*
     # 260,400
     mov eax, 400
     .byte 0xb8, 0x90, 1, 0, 0
@@ -116,13 +116,14 @@ asm_main:
     mov ecx, 0xff3388
     mov edx, 'A'
     call PutChar
+*/
 
     #reserved = 00000000 = 0
     #code     = 00400000 = 4 Mb
     #asm_exit = 004015cd
     #main     = 00404d70
     #_start   = 0040c50c
-    #dot      = 0040d000
+    #dt       = 0040d000
     #asm_main = 0040e230
     #asm_end  = 0040e4df = 4 Mb 153 kb
 
@@ -134,7 +135,10 @@ asm_main:
     # |  |  |
     #esp      = 02d0ff50 = 46 Mb 143 kb
 
-    mov edx, [pframebuf]
+    mov edi, offset s1
+    call str_len
+
+    mov edx, eax
     mov edi, offset dot+4
     mov ecx, 8
 1:  # 0x12345678
@@ -153,6 +157,7 @@ asm_main:
     mov edx, offset dot
     call PutStr
 
+/*
     mov eax, 300
     mov ebx, 340
     mov ecx, 0xffffff
@@ -196,7 +201,7 @@ asm_main:
     mov ecx, 0xff3388
     mov edx, 'B'
     call PutChar
-
+*/
 
     //     _________   _________   _______
     // | |/   11    \ /   11    \ /   9   \  = size
@@ -206,6 +211,7 @@ asm_main:
 
     // MouseMove event:
     //  0 yyyyyyyyyyy xxxxxxxxxxx 111010000 (0x1d0)
+
 next:
     call getkey
     mov ebx, eax
@@ -213,7 +219,7 @@ next:
     cmp ebx, 0x1d0 # MouseMove
     jne 9f
 
-    mov ebx, eax		# extract x
+    mov ebx, eax	# extract x
     and eax, 0b00000000000011111111111000000000
     shr eax, 9
     mov edx, 800-16	# clamp x to 0..800-16
@@ -232,26 +238,49 @@ next:
 9:  cmp ebx, 0x1ff # NextFrame
     jne next
 
-    call animate
+    #call animate
 
-    mov eax, 600
-    mov ebx, 460
-    mov ecx, 0xff3388
-    mov edx, offset dot
-    call PutStr
-
-    mov eax, 200
-    mov ebx, 160
-    mov ecx, 0xff2288
-    mov edx, 34
-    call PutCircle
+    mov ecx, 300	# pix per frame
+1:  push ecx
+    call rand
+    xor edx, edx
+    mov ecx, 600
+    div ecx
+    mov ebx, edx	# y
+    call rand
+    xor edx, edx
+    mov ecx, 800
+    div ecx
+    mov eax, edx	# x
+    mov ecx, 0x1EAE98	# color
+    call PutPix
+    pop ecx
+    loop 1b
 
     jmp next
-
     jmp endpic
 
-animate:
+    .align 8
+seed:
+    .int 1
 
+rand:
+    mov eax, 973656667
+    mul dword ptr [seed] # edx:eax
+    add eax, 223939
+    shrd eax, edx, 9
+    mov [seed], eax
+    ret
+
+rand_good:
+    mov eax, 0x01010101
+    mul dword ptr [seed] # edx:eax
+    add eax, 0x31415926
+    shrd eax, edx, 6
+    mov [seed], eax
+    ret
+
+animate:
     # animate_star(&star1); // is equivalent of animate_s1();
     mov eax, offset star1
     call animate_star
@@ -274,34 +303,32 @@ animate:
     mov eax, offset str2
     call animate_str
 
-    ret
+    mov eax, 640
+    mov ebx, 580
+    mov ecx, 0xff3388
+    mov edx, offset dot
+    call PutStr
 
-/* struct star {
-    int x, y;
-    int v;
-}; */
+    ret
 
 star.x = 0
 star.y = 4
 star.vx = 8
 star.vy = 12
 
-/*
-star s1 = { 0, 100, 8 };
-star s2 = { 100, 500, 6 };
-*/
-
+    .align 8
 star1:
-    animate_x:  .int 0
-    animate_y:  .int 500
-    animate_vx:  .int 8
-    animate_vy:  .int 6
+    /* x */  .int 0
+    /* y */  .int 500
+    /* vx */ .int 8
+    /* vy */ .int 6
 
+    .align 8
 star2:
-    animate_x2:  .int 100
-    animate_y2:  .int 100
-    animate_vx2:  .int 1
-    animate_vy2:  .int 1
+    /* x */  .int 100
+    /* y */  .int 100
+    /* vx */ .int 1
+    /* vy */ .int 1
 
 // function animate_star(star *s (eax));
 
@@ -418,22 +445,6 @@ Clear32x32:
 
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
-Circle1:
-    animate_circle_x:  .int 90
-    animate_circle_y:  .int 400
-    animate_circle_vx:  .int 8
-    animate_circle_vy:  .int 6
-    animate_circle_colour:  .int 0x3929FDBB
-    animate_circle_radius:  .int 76
-
-Circle2:
-    animate_circle_x2:  .int 140
-    animate_circle_y2:  .int 340
-    animate_circle_vx2:  .int 1
-    animate_circle_vy2:  .int 1
-    animate_circle_colour2:  .int 0xff2288
-    animate_circle_radius2:  .int 38
-
 circle.x = 0
 circle.y = 4
 circle.vx = 8
@@ -441,18 +452,44 @@ circle.vy = 12
 circle.colour = 16
 circle.radius = 20
 
+    .align 8
+Circle1:
+    /* x */      .int 90
+    /* y */      .int 400
+    /* vx */     .int 8
+    /* vy */     .int -20
+    /* colour */ .int 0x29fdbb
+    /* radius */ .int 76
+
+    .align 8
+Circle2:
+    /* x */      .int 140
+    /* y */      .int 340
+    /* vx */     .int 3
+    /* vy */     .int 3
+    /* colour */ .int 0xff2288
+    /* radius */ .int 38
+
 animate_circle:
     mov esi, eax
-    inc dword ptr [esi + circle.vy]
+
+    mov eax, [esi + circle.vy]
+    inc eax
+    mov ebx, 4000
+    cmp eax, ebx
+    cmovg eax, ebx
+    mov ebx, -4000
+    cmp eax, ebx
+    cmovl eax, ebx
+    mov [esi + circle.vy], eax
 
     mov eax, [esi + circle.x]
     mov ebx, [esi + circle.y]
-    mov ecx, 0
+    xor ecx, ecx
     mov edx, [esi + circle.radius]
     pusha
     call PutCircle
     popa
-    mov ecx, [esi + circle.colour]
 
     mov eax, [esi + circle.x]
     add eax, [esi + circle.vx]
@@ -482,6 +519,7 @@ animate_circle:
     mov ebx, [esi + circle.radius]
 1:  mov [esi + circle.y], ebx
 
+    mov ecx, [esi + circle.colour]
     call PutCircle
     ret
 
@@ -725,7 +763,7 @@ str.color = 16
 str.string = 20
 str.len = 24
 
-aiur:  .string "My life for Aiur!"
+    .align 8
 str1:
     /* x*/  .int 130
     /* y*/  .int 130
@@ -735,7 +773,9 @@ str1:
     /*str*/ .int aiur
     /*len*/ .int 17
 
-hello: .string "Hello there!"
+aiur:  .string "My life for Aiur!"
+
+    .align 8
 str2:
     /* x*/  .int 555
     /* y*/  .int 444
@@ -744,6 +784,8 @@ str2:
     /*col*/ .int 0xff00ff00
     /*str*/ .int hello
     /*len*/ .int 12
+
+hello: .string "Hello there!"
 
 animate_str:
     mov esi, eax
@@ -790,7 +832,21 @@ animate_str:
     call PutStr
     ret
 
-// int str_len_count(char* (edx) s)
+// int str_len(char* (edi) str)
+
+str_len:
+    push ecx
+    xor eax, eax
+    xor ecx, ecx
+    not ecx
+    repnz scasb # cmp al, [edi]; dec ecx
+    mov eax, ecx
+    pop ecx
+    not eax
+    dec eax
+    ret
+
+// int str_len_count(char* (edx) str)
 
 str_len_count:
     mov edi, edx
@@ -896,6 +952,25 @@ endpic:
     # done
     ret
 
+// void strlen_testC(int repeat)
+
+    .global _strlen_testC
+_strlen_testC:
+strlen_testC:
+    push ebx
+    push esi
+    push edi
+    mov ecx, [esp + 16]
+1:  mov edi, offset s1
+    call str_len
+    cmp eax, 80
+    jne 2f
+    loop 1b
+2:  pop edi
+    pop esi
+    pop ebx
+    ret
+
     # . = 0x0040e4df
 asm_end:
 
@@ -912,6 +987,7 @@ extern "C" {
     void PutStarC(int x, int y);
     void PutCircleC(int x, int y, int color, int radius);
     void PutCircleC2(int x, int y, int color, int radius);
+    void strlen_testC(int repeat);
     // export
     void animate_starC(struct star *s);
     void animateC();
@@ -1000,15 +1076,7 @@ int main()
     end = rdtsc();
     uint64_t eloop = end - beg;
     printf("eloop = %.2f\n", 1.0/1000000 * eloop);
-
-    beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
-        PutCircleC2(100, 100, 0xff1133, 44);
-    }
-    end = rdtsc();
-    uint64_t PutCircle2 = end - beg;
-    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle2);
-
+/*
     beg = rdtsc();
     for (int i = 0; i < 100000; i++) {
         PutCircleC(100, 100, 0xff1133, 44);
@@ -1019,26 +1087,18 @@ int main()
 
     beg = rdtsc();
     for (int i = 0; i < 100000; i++) {
-        PutCircleC(100, 100, 0xff1133, 44);
-    }
-    end = rdtsc();
-    uint64_t PutCircle11 = end - beg;
-    printf("PutCircle1 = %.2f\n", 1.0/1000000 * PutCircle11);
-
-    beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
         PutCircleC2(100, 100, 0xff1133, 44);
     }
     end = rdtsc();
-    uint64_t PutCircle21 = end - beg;
-    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle21);
-
+    uint64_t PutCircle2 = end - beg;
+    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle2);
+*/
     beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
-        PutCircleC2(100, 100, 0xff1133, 44);
+    for (int i = 0; i < 100; i++) {
+        strlen_testC(100000);
     }
     end = rdtsc();
-    uint64_t PutCircle22 = end - beg;
-    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle22);
+    uint64_t strlen_test1 = end - beg;
+    printf("strlen_test = %.2f\n", 1.0/1000000 * strlen_test1);
 }
 #endif
