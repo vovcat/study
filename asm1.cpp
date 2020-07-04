@@ -219,7 +219,7 @@ next:
     mov ebx, eax
     and ebx, 0b111111111
     cmp ebx, 0x1d1 # MouseLeft
-    jne chkMouseMove
+    jne chkMouseRight
 /*
     mov ebx, eax	# extract x
     and eax, 0b00000000000011111111111000000000
@@ -240,6 +240,12 @@ next:
 
     // void mouse_circle(key eax);
     call mouse_circle
+    jmp next
+
+chkMouseRight:
+    cmp ebx, 0x1d3 # MouseRight
+    jne chkMouseMove
+    call mouse_string
     jmp next
 
 chkMouseMove:
@@ -332,7 +338,6 @@ animate:
 
     mov eax, offset Circle2
     call animate_circle
-*/
 
     # animate_str(&str1);
     mov eax, offset str1
@@ -341,7 +346,7 @@ animate:
     # animate_str(&str2);
     mov eax, offset str2
     call animate_str
-
+*/
     mov eax, offset circles
     mov ebx, 0
 1:  cmp ebx, [n_circles]
@@ -353,6 +358,20 @@ animate:
     pop eax
     inc ebx
     add eax, 24
+    jmp 1b
+2:
+
+    mov eax, offset strings
+    mov ebx, 0
+1:  cmp ebx, [n_strings]
+    jge 2f
+    push eax
+    push ebx
+    call animate_str
+    pop ebx
+    pop eax
+    inc ebx
+    add eax, 28
     jmp 1b
 2:
     mov eax, 640
@@ -577,14 +596,14 @@ mouse_circle:
     add edx, 10                             #|
     mov [esi + circle.radius], edx          #|
 
-    call rand                               #radius
+    call rand                               #vx
     xor edx, edx                            #|
     mov ebx, 60                             #|
     div ebx                                 #|
     sub edx, 30                             #|
     mov [esi + circle.vx], edx              #|
 
-    call rand                               #radius
+    call rand                               #vy
     xor edx, edx                            #|
     mov ebx, 60                             #|
     div ebx                                 #|
@@ -901,6 +920,9 @@ ClearScreen:
 // STRING
 //
 
+letter.width = 8
+letter.height = 13
+
 str.x = 0
 str.y = 4
 str.vx = 8
@@ -908,30 +930,97 @@ str.vy = 12
 str.color = 16
 str.string = 20
 str.len = 24
+str_size = 28
 
-    .align 8
-str1:
-    /* x*/  .int 130
-    /* y*/  .int 130
-    /*vx*/  .int 4
-    /*vy*/  .int 6
-    /*col*/ .int 0xff55aaff
-    /*str*/ .int aiur
-    /*len*/ .int 17
+
+strings_max = 10
+
+n_strings:
+    .int 0
+
+strings:
+    .space str_size * strings_max, 0
 
 aiur:  .string "My life for Aiur!"
 
     .align 8
-str2:
-    /* x*/  .int 555
-    /* y*/  .int 444
-    /*vx*/  .int 2
-    /*vy*/  .int 2
-    /*col*/ .int 0xff00ff00
-    /*str*/ .int hello
-    /*len*/ .int 12
+str1:
+    /*x  */  .int 130
+    /*y  */  .int 130
+    /*vx */  .int 4
+    /*vy */  .int 6
+    /*col*/  .int 0xff55aaff
+    /*str*/  .int aiur
+    /*len*/  .int 17
+
 
 hello: .string "Hello there!"
+
+    .align 8
+str2:
+    /*x  */  .int 555
+    /*y  */  .int 444
+    /*vx */  .int 2
+    /*vy */  .int 2
+    /*col*/  .int 0xff00ff00
+    /*str*/  .int hello
+    /*len*/  .int 12
+
+mouse_string:
+    cmp dword ptr [n_strings], strings_max
+    jge 3f
+
+    mov ebx, eax	# extract x
+    and eax, 0b00000000000011111111111000000000
+    shr eax, 9
+    mov edx, 800-16	# clamp x to 0..800-16
+    cmp eax, edx
+    cmova eax, edx
+                        # extract y
+    and ebx, 0b01111111111100000000000000000000
+    shr ebx, 20
+    mov edx, 600-24	# clamp y to 0..600-24
+    cmp ebx, edx
+    cmova ebx, edx
+
+    imul esi, [n_strings], str_size
+    add esi, offset strings
+
+    mov [esi + str.x], eax                              #x
+    mov [esi + str.y], ebx                              #y
+
+    call rand                                           #colour
+    mov [esi + str.color], eax                          #|
+
+    call rand                                           #string
+    xor edx, edx                                        #|
+    mov ebx, 2                                          #|
+    div ebx                                             #|
+    cmp edx, 0                                          #|
+    jz 1f                                               #|
+    mov dword ptr [esi + str.string], offset aiur       #|
+    mov dword ptr [esi + str.len], 17                   #|
+    jmp 2f                                              #|
+1:  mov dword ptr [esi + str.string], offset hello      #|
+    mov dword ptr [esi + str.len], 12                #|
+2:
+    call rand                                           #vx
+    xor edx, edx                                        #|
+    mov ebx, 60                                         #|
+    div ebx                                             #|
+    sub edx, 30                                         #|
+    mov [esi + str.vx], edx                             #|
+
+    call rand                                           #vy
+    xor edx, edx                                        #|
+    mov ebx, 60                                         #|
+    div ebx                                             #|
+    sub edx, 30                                         #|
+    mov [esi + str.vy], edx                             #|
+
+    inc dword ptr [n_strings]
+3:
+    ret
 
 // void animate_str(str *eax)
 
@@ -939,12 +1028,22 @@ animate_str:
     mov esi, eax
     mov eax, [esi + str.x]
     mov ebx, [esi + str.y]
-    xor ecx, ecx
+    mov edx, [esi + str.len]
+    imul edx, edx, letter.width
+    mov ecx, 800
+    sub ecx, edx
+    cmp eax, ecx
+    jg 1f
+    mov ecx, 600 - letter.height
+    cmp ebx, ecx
+    jg 1f
     mov edx, [esi + str.string]
     pusha
+    xor ecx, ecx
     call PutStr
     popa
-
+1:
+    mov edx, [esi + str.string]
     mov edi, [esi + str.len]
     shl edi, 3
 
@@ -964,12 +1063,12 @@ animate_str:
 
     mov ebx, [esi + str.y]
     add ebx, [esi + str.vy]
-    add ebx, 13
+    add ebx, letter.height
     cmp ebx, 600
     jl 1f
     neg dword ptr [esi + str.vy]
     mov ebx, 600
-1:  sub ebx, 13
+1:  sub ebx, letter.height
     cmp ebx, 0
     jg 1f
     neg dword ptr [esi + str.vy]

@@ -1,5 +1,5 @@
 # depslib dependency file v1.0
-1593569556 source:d:\vmproj\asm1\wx.cpp
+1593868273 source:d:\vmproj\asm1\wx.cpp
 	<stdio.h>
 	<unistd.h>
 	<string.h>
@@ -34,7 +34,7 @@
 
 1592558726 d:\vmproj\asm1\wxasm.cpp
 
-1593795170 source:d:\vmproj\asm1\asm1.cpp
+1593875025 source:d:\vmproj\asm1\asm1.cpp
 	<stdio.h>
 
 1592665820 d:\vmproj\asm1\asm1.cpp
