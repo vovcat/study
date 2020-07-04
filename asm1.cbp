@@ -21,6 +21,7 @@
 					<Add library="winmm" />
 					<Add library="ws2_32" />
 					<Add library="avrt" />
+					<Add library="dwmapi" />
 				</Linker>
 			</Target>
 			<Target title="Release">

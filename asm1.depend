@@ -30,6 +30,7 @@
 	<X11/XKBlib.h>
 	<X11/extensions/XShm.h>
 	<X11/extensions/Xdbe.h>
+	<dwmapi.h>
 
 1592558726 d:\vmproj\asm1\wxasm.cpp
 

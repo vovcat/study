@@ -616,6 +616,8 @@ int main(int argc, char *argv[])
 
 #elif defined(WIN32)
 
+#include <dwmapi.h> // DwmFlush()
+
 #define IDT_TIMER1 0x14001101
 #define IDT_TIMER2 0x14001102
 
@@ -742,6 +744,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
         case WM_PAINT: {
             static unsigned prevtc = 0, prevdt = 0;
+
+            DwmFlush();
             //unsigned tc = GetTickCount();
             unsigned tc = timeGetTime();
             unsigned dt = tc - prevtc;
@@ -749,6 +753,54 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             prevdt = dt;
             prevtc = tc;
             //if (getkey_q.size()) return 0;
+
+            DWM_TIMING_INFO ti;
+            /*
+            typedef struct _DWM_TIMING_INFO {
+              UINT32          cbSize;			The size of this DWM_TIMING_INFO structure.
+              UNSIGNED_RATIO  rateRefresh;              The monitor refresh rate.
+              QPC_TIME        qpcRefreshPeriod;         The monitor refresh period.
+              UNSIGNED_RATIO  rateCompose;              The composition rate.
+              QPC_TIME        qpcVBlank;                The query performance counter value before the vertical blank.
+              DWM_FRAME_COUNT cRefresh;                 The DWM refresh counter.
+              UINT            cDXRefresh;               The DirectX refresh counter.
+              QPC_TIME        qpcCompose;               The query performance counter value for a frame composition.
+              DWM_FRAME_COUNT cFrame;                   The frame number that was composed at qpcCompose.
+              UINT            cDXPresent;               The DirectX present number used to identify rendering frames.
+              DWM_FRAME_COUNT cRefreshFrame;            The refresh count of the frame that was composed at qpcCompose.
+              DWM_FRAME_COUNT cFrameSubmitted;          The DWM frame number that was last submitted.
+              UINT            cDXPresentSubmitted;      The DirectX present number that was last submitted.
+              DWM_FRAME_COUNT cFrameConfirmed;          The DWM frame number that was last confirmed as presented.
+              UINT            cDXPresentConfirmed;      The DirectX present number that was last confirmed as presented.
+              DWM_FRAME_COUNT cRefreshConfirmed;        The target refresh count of the last frame confirmed as completed by the GPU.
+              UINT            cDXRefreshConfirmed;      The DirectX refresh count when the frame was confirmed as presented.
+              DWM_FRAME_COUNT cFramesLate;              The number of frames the DWM presented late.
+              UINT            cFramesOutstanding;       The number of composition frames that have been issued but have not been confirmed as completed.
+              DWM_FRAME_COUNT cFrameDisplayed;          The last frame displayed.
+              QPC_TIME        qpcFrameDisplayed;        The QPC time of the composition pass when the frame was displayed.
+              DWM_FRAME_COUNT cRefreshFrameDisplayed;   The vertical refresh count when the frame should have become visible.
+              DWM_FRAME_COUNT cFrameComplete;           The ID of the last frame marked as completed.
+              QPC_TIME        qpcFrameComplete;         The QPC time when the last frame was marked as completed.
+              DWM_FRAME_COUNT cFramePending;            The ID of the last frame marked as pending.
+              QPC_TIME        qpcFramePending;          The QPC time when the last frame was marked as pending.
+              DWM_FRAME_COUNT cFramesDisplayed;         The number of unique frames displayed. This value is valid only after a second call to the DwmGetCompositionTimingInfo function.
+              DWM_FRAME_COUNT cFramesComplete;          The number of new completed frames that have been received.
+              DWM_FRAME_COUNT cFramesPending;           The number of new frames submitted to DirectX but not yet completed.
+              DWM_FRAME_COUNT cFramesAvailable;         The number of frames available but not displayed, used, or dropped. This value is valid only after a second call to DwmGetCompositionTimingInfo.
+              DWM_FRAME_COUNT cFramesDropped;           The number of rendered frames that were never displayed because composition occurred too late. This value is valid only after a second call to DwmGetCompositionTimingInfo.
+              DWM_FRAME_COUNT cFramesMissed;            The number of times an old frame was composed when a new frame should have been used but was not available.
+              DWM_FRAME_COUNT cRefreshNextDisplayed;    The frame count at which the next frame is scheduled to be displayed.
+              DWM_FRAME_COUNT cRefreshNextPresented;    The frame count at which the next DirectX present is scheduled to be displayed.
+              DWM_FRAME_COUNT cRefreshesDisplayed;      The total number of refreshes that have been displayed for the application since the DwmSetPresentParameters function was last called.
+              DWM_FRAME_COUNT cRefreshesPresented;      The total number of refreshes that have been presented by the application since DwmSetPresentParameters was last called.
+              DWM_FRAME_COUNT cRefreshStarted;          The refresh number when content for this window started to be displayed.
+              ULONGLONG       cPixelsReceived;          The total number of pixels DirectX redirected to the DWM.
+              ULONGLONG       cPixelsDrawn;             The number of pixels drawn.
+              DWM_FRAME_COUNT cBuffersEmpty;            The number of empty buffers in the flip chain.
+            } DWM_TIMING_INFO;
+            ti.cbSize = sizeof(ti);
+            DWMAPI DwmGetCompositionTimingInfo(hWnd, DWM_TIMING_INFO *pTimingInfo);
+            */
 
             PAINTSTRUCT ps = {};
             HDC hdc = BeginPaint(hWnd, &ps);
