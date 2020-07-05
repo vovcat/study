@@ -50,6 +50,7 @@
 			<Option compile="0" />
 			<Option link="0" />
 		</Unit>
+		<Unit filename="asm1s.S" />
 		<Unit filename="font8x13.s" />
 		<Unit filename="wx.cpp" />
 		<Unit filename="wxasm.cpp">
