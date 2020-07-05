@@ -1,31 +1,46 @@
 .intel_syntax noprefix
 .section data1, "awx"
 
-star.x = 0
-star.y = 4
-star.vx = 8
-star.vy = 12
+object.type = 0
 
-circle.x = 0
-circle.y = 4
-circle.vx = 8
-circle.vy = 12
-circle.colour = 16
-circle.radius = 20
-circle_size = 24
+type.star = 1
+star.type = 0
+star.x = 4
+star.y = 8
+star.vx = 12
+star.vy = 16
 
-str.x = 0
-str.y = 4
-str.vx = 8
-str.vy = 12
-str.color = 16
-str.string = 20
-str.len = 24
-str_size = 28
+type.circle = 2
+circle.type = 0
+circle.x = 4
+circle.y = 8
+circle.vx = 12
+circle.vy = 16
+circle.colour = 20
+circle.radius = 24
+circle_size = 28
+
+type.str = 3
+str.type = 0
+str.x = 4
+str.y = 8
+str.vx = 12
+str.vy = 16
+str.color = 20
+str.string = 24
+str.len = 28
+str_size = 32
 
 #.=0040d000
 dt: .int .
     .align 16
+
+mouse.x:
+    .int 0
+mouse.y:
+    .int 0
+pause:
+    .int 0
 
 pic:
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
@@ -191,34 +206,44 @@ next:
     call getkey
     mov ebx, eax
     and ebx, 0b111111111
-    cmp ebx, 0x1d1 # MouseLeft
+    cmp ebx, 0x1d0              # MouseMove
+    jb  1f
+    cmp ebx, 0x1ef              # Mouse....
+    ja  1f
+
+    mov ecx, eax	# extract x
+    and ecx, 0b00000000000011111111111000000000
+    shr ecx, 9
+    mov edx, 799	# clamp x to 0..799
+    cmp ecx, edx
+    cmova ecx, edx
+    mov [mouse.x], ecx
+
+    mov ecx, eax	# extract y
+    and ecx, 0b01111111111100000000000000000000
+    shr ecx, 20
+    mov edx, 599    # clamp y to 0..599
+    cmp ecx, edx
+    cmova ecx, edx
+    mov [mouse.y], ecx
+1:
+    cmp ebx, ' '
+    jne 2f
+    not dword ptr [pause]
+
+2:  cmp ebx, 0x1d1 # MouseLeft
     jne chkMouseRight
-/*
-    mov ebx, eax	# extract x
-    and eax, 0b00000000000011111111111000000000
-    shr eax, 9
-    mov edx, 800-16	# clamp x to 0..800-16
-    cmp eax, edx
-    cmova eax, edx
-                        # extract y
-    and ebx, 0b01111111111100000000000000000000
-    shr ebx, 20
-    mov edx, 600-24	# clamp y to 0..600-24
-    cmp ebx, edx
-    cmova ebx, edx
 
     // eax - x, ebx - y
-    call PutPic16x24
-*/
+    //call PutPic16x24
 
-    // void mouse_circle(key eax);
-    call mouse_circle
+    call create_circle
     jmp next
 
 chkMouseRight:
     cmp ebx, 0x1d3 # MouseRight
     jne chkMouseMove
-    call mouse_string
+    call create_string
     jmp next
 
 chkMouseMove:
@@ -233,7 +258,10 @@ chkNextFrame:
     cmp ebx, 0x1ff # NextFrame
     jne next
 
+    cmp dword ptr [pause], 0
+    jnz 1f
     call animate
+1:
 
 /*
     # fill_rand
@@ -348,33 +376,38 @@ animate:
     mov eax, offset str2
     call animate_str
 */
-    mov eax, offset circles
-    mov ebx, 0
-1:  cmp ebx, [n_circles]
-    jge 2f
+
+    mov eax, offset Heap
+1:
+    mov ebx, [eax + object.type]
+    cmp ebx, 0
+    jz 4f
+
+    cmp ebx, type.circle
+    jne 2f
+
     push eax
     push ebx
     call animate_circle
     pop ebx
     pop eax
-    inc ebx
     add eax, circle_size
     jmp 1b
-2:
 
-    mov eax, offset strings
-    mov ebx, 0
-1:  cmp ebx, [n_strings]
-    jge 2f
+2:  cmp ebx, type.str
+    jne 3f
+
     push eax
     push ebx
     call animate_str
     pop ebx
     pop eax
-    inc ebx
     add eax, str_size
     jmp 1b
-2:
+
+3:
+4:
+
     mov eax, 640
     mov ebx, 580
     mov ecx, 0xff3388
@@ -389,6 +422,7 @@ animate:
 
     .align 8
 star1:
+    /*type*/ .int type.star
     /* x */  .int 0
     /* y */  .int 500
     /* vx */ .int 8
@@ -396,6 +430,7 @@ star1:
 
     .align 8
 star2:
+    /*type*/ .int type.star
     /* x */  .int 100
     /* y */  .int 100
     /* vx */ .int 1
@@ -543,35 +578,19 @@ Circle2:
     /* colour */ .int 0xff2288
     /* radius */ .int 38
 
-circles_max = 100
+// void create_circle(key eax)
 
-circles:
-    .space circle_size * circles_max, 0
+create_circle:
 
-n_circles:
-    .int 0
+    mov eax, circle_size
+    call malloc
+    mov esi, eax
+    cmp esi, 0
+    jz 1f
 
-// void mouse_circle(key eax)
-
-mouse_circle:
-    cmp dword ptr [n_circles], circles_max
-    jge 1f
-
-    mov ebx, eax	# extract x
-    and eax, 0b00000000000011111111111000000000
-    shr eax, 9
-    mov edx, 800-16	# clamp x to 0..800-16
-    cmp eax, edx
-    cmova eax, edx
-                        # extract y
-    and ebx, 0b01111111111100000000000000000000
-    shr ebx, 20
-    mov edx, 600-24	# clamp y to 0..600-24
-    cmp ebx, edx
-    cmova ebx, edx
-
-    imul esi, [n_circles], circle_size
-    add esi, offset circles
+    mov eax, [mouse.x]
+    mov ebx, [mouse.y]
+    mov dword ptr [esi + circle.type], type.circle
 
     mov [esi + circle.x], eax               #x
     mov [esi + circle.y], ebx               #y
@@ -599,8 +618,6 @@ mouse_circle:
     div ebx                                 #|
     sub edx, 30                             #|
     mov [esi + circle.vy], edx              #|
-
-    inc dword ptr [n_circles]
 
 1:  ret
 
@@ -946,25 +963,17 @@ str2:
     /*str*/  .int hello
     /*len*/  .int 12
 
-mouse_string:
-    cmp dword ptr [n_strings], strings_max
-    jge 3f
+create_string:
 
-    mov ebx, eax	# extract x
-    and eax, 0b00000000000011111111111000000000
-    shr eax, 9
-    mov edx, 800-16	# clamp x to 0..800-16
-    cmp eax, edx
-    cmova eax, edx
-                        # extract y
-    and ebx, 0b01111111111100000000000000000000
-    shr ebx, 20
-    mov edx, 600-24	# clamp y to 0..600-24
-    cmp ebx, edx
-    cmova ebx, edx
+    mov eax, str_size
+    call malloc
+    mov esi, eax
+    cmp esi, 0
+    jz 3f
 
-    imul esi, [n_strings], str_size
-    add esi, offset strings
+    mov eax, [mouse.x]
+    mov ebx, [mouse.y]
+    mov dword ptr [esi + str.type], type.str
 
     mov [esi + str.x], eax                              #x
     mov [esi + str.y], ebx                              #y
@@ -982,23 +991,22 @@ mouse_string:
     mov dword ptr [esi + str.len], 17                   #|
     jmp 2f                                              #|
 1:  mov dword ptr [esi + str.string], offset hello      #|
-    mov dword ptr [esi + str.len], 12                #|
+    mov dword ptr [esi + str.len], 12                   #|
 2:
     call rand                                           #vx
     xor edx, edx                                        #|
-    mov ebx, 60                                         #|
+    mov ebx, 20                                         #|
     div ebx                                             #|
-    sub edx, 30                                         #|
+    sub edx, 10                                         #|
     mov [esi + str.vx], edx                             #|
 
     call rand                                           #vy
     xor edx, edx                                        #|
-    mov ebx, 60                                         #|
+    mov ebx, 20                                         #|
     div ebx                                             #|
-    sub edx, 30                                         #|
+    sub edx, 10                                         #|
     mov [esi + str.vy], edx                             #|
 
-    inc dword ptr [n_strings]
 3:
     ret
 
