@@ -1,6 +1,28 @@
 .intel_syntax noprefix
 .section data1, "awx"
 
+star.x = 0
+star.y = 4
+star.vx = 8
+star.vy = 12
+
+circle.x = 0
+circle.y = 4
+circle.vx = 8
+circle.vy = 12
+circle.colour = 16
+circle.radius = 20
+circle_size = 24
+
+str.x = 0
+str.y = 4
+str.vx = 8
+str.vy = 12
+str.color = 16
+str.string = 20
+str.len = 24
+str_size = 28
+
 #.=0040d000
 dt: .int .
     .align 16
@@ -236,6 +258,34 @@ chkNextFrame:
     jmp next
 
 //
+// ALLOC
+//
+
+Heap:
+    .space 2048 * 1024, 0
+Heap_end:
+
+Heap_pos:
+    .int Heap
+
+malloc:
+    #eax - byte size for space
+    push ebx
+    mov ebx, [Heap_pos]
+    add ebx, eax
+    cmp ebx, offset Heap_end
+    jg 1f
+    mov eax, [Heap_pos]
+    mov [Heap_pos], ebx
+    jmp 2f
+1:  xor eax, eax
+2:  pop ebx
+    ret
+
+free:
+    ret
+
+//
 // LCG PRNG - Linear Congruential Generator as Pseudo-Random Number Generator
 //
 
@@ -308,7 +358,7 @@ animate:
     pop ebx
     pop eax
     inc ebx
-    add eax, 24
+    add eax, circle_size
     jmp 1b
 2:
 
@@ -322,7 +372,7 @@ animate:
     pop ebx
     pop eax
     inc ebx
-    add eax, 28
+    add eax, str_size
     jmp 1b
 2:
     mov eax, 640
@@ -336,11 +386,6 @@ animate:
 //
 // STAR
 //
-
-star.x = 0
-star.y = 4
-star.vx = 8
-star.vy = 12
 
     .align 8
 star1:
@@ -479,14 +524,6 @@ Clear32x32:
 //
 // CIRCLE
 //
-
-circle.x = 0
-circle.y = 4
-circle.vx = 8
-circle.vy = 12
-circle.colour = 16
-circle.radius = 20
-circle_size = 24
 
     .align 8
 Circle1:
@@ -876,19 +913,9 @@ ClearScreen:
 letter.width = 8
 letter.height = 13
 
-str.x = 0
-str.y = 4
-str.vx = 8
-str.vy = 12
-str.color = 16
-str.string = 20
-str.len = 24
-str_size = 28
-
-    .align 8
-
 strings_max = 100
 
+    .align 8
 n_strings:
     .int 0
 
@@ -897,6 +924,7 @@ strings:
 
 aiur:  .string "My life for Aiur!"
 
+    .align 8
 str1:
     /*x  */  .int 130
     /*y  */  .int 130
@@ -906,10 +934,9 @@ str1:
     /*str*/  .int aiur
     /*len*/  .int 17
 
-    .align 8
-
 hello: .string "Hello there!"
 
+    .align 8
 str2:
     /*x  */  .int 555
     /*y  */  .int 444
