@@ -226,63 +226,44 @@ next:
     cmp ecx, edx
     cmova ecx, edx
     mov [mouse.y], ecx
-1:
-    cmp ebx, ' '
-    jne 2f
+
+1:  cmp ebx, ' '   # Space
+    jne 1f
+
+    // Space
     not dword ptr [pause]
+    jmp next
 
-2:  cmp ebx, 0x1d1 # MouseLeft
-    jne chkMouseRight
+1:  cmp ebx, 0x1d1 # MouseLeft
+    jne 1f
 
-    // eax - x, ebx - y
-    //call PutPic16x24
-
+    // MouseLeft
     call create_circle
     jmp next
 
-chkMouseRight:
-    cmp ebx, 0x1d3 # MouseRight
-    jne chkMouseMove
+1:  cmp ebx, 0x1d3 # MouseRight
+    jne 1f
+
+    // MouseRight
     call create_string
     jmp next
 
-chkMouseMove:
-    cmp ebx, 0x1d0 # MouseMove
-    jne chkNextFrame
+1:  cmp ebx, 0x1d0 # MouseMove
+    jne 1f
 
-        // .....
-
+    // MouseMove
     jmp next
 
-chkNextFrame:
-    cmp ebx, 0x1ff # NextFrame
-    jne next
+1:  cmp ebx, 0x1ff # NextFrame
+    jne 1f
 
+    // NextFrame
     cmp dword ptr [pause], 0
-    jnz 1f
+    jnz 2f
     call animate
-1:
+2:  // skip animate() if paused
 
-/*
-    # fill_rand
-    mov ecx, 300	# pixels per frame
-1:  push ecx
-    call rand
-    xor edx, edx
-    mov ecx, 600
-    div ecx
-    mov ebx, edx	# y
-    call rand
-    xor edx, edx
-    mov ecx, 800
-    div ecx
-    mov eax, edx	# x
-    mov ecx, 0x1EAE98	# color
-    call PutPix
-    pop ecx
-    loop 1b
-*/
-
+1:  // nothing of the above
     jmp next
 
 //
@@ -297,7 +278,7 @@ Heap_pos:
     .int Heap
 
 malloc:
-    #eax - byte size for space
+    # eax - byte size for space
     push ebx
     mov ebx, [Heap_pos]
     add ebx, eax
@@ -375,6 +356,24 @@ animate:
     # animate_str(&str2);
     mov eax, offset str2
     call animate_str
+
+    # fill screen with random dots
+    mov ecx, 300	# pixels per frame
+1:  push ecx
+    call rand
+    xor edx, edx
+    mov ecx, 600
+    div ecx
+    mov ebx, edx	# y
+    call rand
+    xor edx, edx
+    mov ecx, 800
+    div ecx
+    mov eax, edx	# x
+    mov ecx, 0x1EAE98	# color
+    call PutPix
+    pop ecx
+    loop 1b
 */
 
     mov eax, offset Heap
@@ -386,6 +385,7 @@ animate:
     cmp ebx, type.circle
     jne 2f
 
+    // type.circle
     push eax
     push ebx
     call animate_circle
@@ -397,6 +397,7 @@ animate:
 2:  cmp ebx, type.str
     jne 3f
 
+    // type.str
     push eax
     push ebx
     call animate_str
@@ -405,8 +406,8 @@ animate:
     add eax, str_size
     jmp 1b
 
-3:
-4:
+3:  // type.???
+4:  // zero type
 
     mov eax, 640
     mov ebx, 580
@@ -423,16 +424,16 @@ animate:
     .align 8
 star1:
     /*type*/ .int type.star
-    /* x */  .int 0
-    /* y */  .int 500
+    /*  x */ .int 0
+    /*  y */ .int 500
     /* vx */ .int 8
     /* vy */ .int 6
 
     .align 8
 star2:
     /*type*/ .int type.star
-    /* x */  .int 100
-    /* y */  .int 100
+    /*  x */ .int 100
+    /*  y */ .int 100
     /* vx */ .int 1
     /* vy */ .int 1
 
@@ -562,6 +563,7 @@ Clear32x32:
 
     .align 8
 Circle1:
+    /*type*/     .int type.circle
     /* x */      .int 90
     /* y */      .int 400
     /* vx */     .int 8
@@ -571,6 +573,7 @@ Circle1:
 
     .align 8
 Circle2:
+    /*type*/     .int type.circle
     /* x */      .int 140
     /* y */      .int 340
     /* vx */     .int 3
@@ -943,6 +946,7 @@ aiur:  .string "My life for Aiur!"
 
     .align 8
 str1:
+    /*type*/ .int type.str
     /*x  */  .int 130
     /*y  */  .int 130
     /*vx */  .int 4
@@ -955,6 +959,7 @@ hello: .string "Hello there!"
 
     .align 8
 str2:
+    /*type*/ .int type.str
     /*x  */  .int 555
     /*y  */  .int 444
     /*vx */  .int 2
