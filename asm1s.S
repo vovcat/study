@@ -1,35 +1,36 @@
 .intel_syntax noprefix
 .section data1, "awx"
 
-object.type = 0
+object.next = 0
+object.type = 4
 
 type.star = 1
-star.type = 0
-star.x = 4
-star.y = 8
-star.vx = 12
-star.vy = 16
+star.type = 4
+star.x = 8
+star.y = 12
+star.vx = 16
+star.vy = 20
 
 type.circle = 2
-circle.type = 0
-circle.x = 4
-circle.y = 8
-circle.vx = 12
-circle.vy = 16
-circle.colour = 20
-circle.radius = 24
-circle_size = 28
+circle.type = 4
+circle.x = 8
+circle.y = 12
+circle.vx = 16
+circle.vy = 20
+circle.colour = 24
+circle.radius = 28
+circle_size = 32
 
 type.str = 3
-str.type = 0
-str.x = 4
-str.y = 8
-str.vx = 12
-str.vy = 16
-str.color = 20
-str.string = 24
-str.len = 28
-str_size = 32
+str.type = 4
+str.x = 8
+str.y = 12
+str.vx = 16
+str.vy = 20
+str.color = 24
+str.string = 28
+str.len = 32
+str_size = 36
 
 #.=0040d000
 dt: .int .
@@ -239,6 +240,9 @@ next:
 
     // MouseLeft
     call create_circle
+    mov ebx, eax
+    mov eax, offset obj_list
+    call list_add
     jmp next
 
 1:  cmp ebx, 0x1d3 # MouseRight
@@ -246,6 +250,9 @@ next:
 
     // MouseRight
     call create_string
+    mov ebx, eax
+    mov eax, offset obj_list
+    call list_add
     jmp next
 
 1:  cmp ebx, 0x1d0 # MouseMove
@@ -270,9 +277,12 @@ next:
 // ALLOC
 //
 
+.section .bss
 Heap:
     .space 2048 * 1024, 0
 Heap_end:
+
+.section "data1"
 
 Heap_pos:
     .int Heap
@@ -293,6 +303,37 @@ malloc:
 
 free:
     ret
+
+//
+// LIST
+//
+
+    .align 8
+obj_list:
+    /*list_ptr*/ .int 0
+
+list_add:
+1:  cmp dword ptr [eax], 0
+    jz 2f
+    mov eax, [eax]
+    jmp 1b
+2:  # eax -> next, ebx -> object
+    mov [eax], ebx
+    mov dword ptr [ebx], 0
+    mov eax, ebx
+    ret
+
+list_walk:
+1:  cmp dword ptr [eax], 0
+    jz 2f
+    mov eax, [eax]
+    push eax
+    push ebx
+    call ebx
+    pop ebx
+    pop eax
+    jmp 1b
+2:  ret
 
 //
 // LCG PRNG - Linear Congruential Generator as Pseudo-Random Number Generator
@@ -376,8 +417,23 @@ animate:
     loop 1b
 */
 
-    mov eax, offset Heap
-1:
+    mov eax, offset obj_list
+    mov ebx, offset animate_obj
+    call list_walk
+
+    mov eax, 640
+    mov ebx, 580
+    mov ecx, 0xff3388
+    mov edx, offset dot
+    call PutStr
+
+    ret
+
+//
+// ANIMATE_OBJ
+//
+
+animate_obj:
     mov ebx, [eax + object.type]
     cmp ebx, 0
     jz 4f
@@ -391,8 +447,7 @@ animate:
     call animate_circle
     pop ebx
     pop eax
-    add eax, circle_size
-    jmp 1b
+    jmp 4f
 
 2:  cmp ebx, type.str
     jne 3f
@@ -403,18 +458,10 @@ animate:
     call animate_str
     pop ebx
     pop eax
-    add eax, str_size
-    jmp 1b
+    jmp 4f
 
 3:  // type.???
 4:  // zero type
-
-    mov eax, 640
-    mov ebx, 580
-    mov ecx, 0xff3388
-    mov edx, offset dot
-    call PutStr
-
     ret
 
 //
@@ -423,6 +470,7 @@ animate:
 
     .align 8
 star1:
+    /*next*/ .int 0
     /*type*/ .int type.star
     /*  x */ .int 0
     /*  y */ .int 500
@@ -431,6 +479,7 @@ star1:
 
     .align 8
 star2:
+    /*next*/ .int 0
     /*type*/ .int type.star
     /*  x */ .int 100
     /*  y */ .int 100
@@ -563,6 +612,7 @@ Clear32x32:
 
     .align 8
 Circle1:
+    /*next*/     .int 0
     /*type*/     .int type.circle
     /* x */      .int 90
     /* y */      .int 400
@@ -573,6 +623,7 @@ Circle1:
 
     .align 8
 Circle2:
+    /*next*/     .int 0
     /*type*/     .int type.circle
     /* x */      .int 140
     /* y */      .int 340
@@ -581,7 +632,7 @@ Circle2:
     /* colour */ .int 0xff2288
     /* radius */ .int 38
 
-// void create_circle(key eax)
+// circle *create_circle(void)
 
 create_circle:
 
@@ -622,6 +673,7 @@ create_circle:
     sub edx, 30                             #|
     mov [esi + circle.vy], edx              #|
 
+    mov eax, esi
 1:  ret
 
 // void animate_circle(circle *eax)
@@ -946,6 +998,7 @@ aiur:  .string "My life for Aiur!"
 
     .align 8
 str1:
+    /*next*/ .int 0
     /*type*/ .int type.str
     /*x  */  .int 130
     /*y  */  .int 130
@@ -959,6 +1012,7 @@ hello: .string "Hello there!"
 
     .align 8
 str2:
+    /*next*/ .int 0
     /*type*/ .int type.str
     /*x  */  .int 555
     /*y  */  .int 444
@@ -967,6 +1021,8 @@ str2:
     /*col*/  .int 0xff00ff00
     /*str*/  .int hello
     /*len*/  .int 12
+
+// str *create_string(void)
 
 create_string:
 
@@ -1012,8 +1068,8 @@ create_string:
     sub edx, 10                                         #|
     mov [esi + str.vy], edx                             #|
 
-3:
-    ret
+    mov eax, esi
+3:  ret
 
 // void animate_str(str *eax)
 
