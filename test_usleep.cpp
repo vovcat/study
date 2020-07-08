@@ -3,7 +3,10 @@
 // objdump -p test_usleep_w.exe |fgrep -i .dll
 // cp -vp test_usleep* /mnt/local/tmp/
 
+#ifdef WIN32
 #define _WIN32_WINNT 0x0601 // Windows 7
+#include <windows.h>
+#endif
 
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
@@ -13,10 +16,6 @@
 
 #ifdef linux
 #include <sys/select.h> // select()
-#endif
-
-#ifdef WIN32
-#include <windows.h>
 #endif
 
 // 150->280, 900->1100, 1000->1200, 1100->1300
@@ -83,12 +82,17 @@ int res;
 void test_usleep(const char *name, int (*fn)(useconds_t usec), useconds_t usec)
 {
     int ncalls = 2000000 / usec;
-    //unsigned long long itime_start, itime_end;
-    //QueryUnbiasedInterruptTime(&itime_start);
+#ifdef WIN32
+    unsigned long long itime_start, itime_end;
+    QueryUnbiasedInterruptTime(&itime_start);
+#endif
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < ncalls; i++) res = fn(usec);
     std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - start;
-    //QueryUnbiasedInterruptTime(&itime_end);
+#ifdef WIN32
+    QueryUnbiasedInterruptTime(&itime_end);
+    printf("%s: %d -> %.2f usec/call\n", name, usec, 0.1 * (itime_end-itime_start) / ncalls);
+#endif
     //printf("%s(%d): %d calls, %.2f (itime %.2f) usec/call\n", name, usec, ncalls, ti.count() / ncalls,
     //    (itime_end - itime_start) / 10.0 / ncalls);
     printf("%s: %d -> %.2f usec/call\n", name, usec, ti.count() / ncalls);

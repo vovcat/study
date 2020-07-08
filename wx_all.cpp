@@ -1259,7 +1259,7 @@ int main(int argc, char *argv[])
                             sce->major_code, sce->minor_code, sce->shmseg, sce->offset);
                     }
                     if (dbe) {
-                        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeCopied };
+                        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeUndefined };
                         XdbeSwapBuffers(display, &si, 1);
                     }
                 } else {

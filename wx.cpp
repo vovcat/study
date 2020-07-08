@@ -3,6 +3,7 @@
 
 #define _WIN32_WINNT 0x0601 // Windows 7
 
+#include <inttypes.h> // PRIu64
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
 #include <string.h> // strstr()
@@ -17,6 +18,14 @@
 
 #ifndef ARRAY_SIZE
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
+#endif
+
+#ifndef PRId64
+#define PRId64 "I64d"
+#endif
+
+#ifndef PRIu64
+#define PRIu64 "I64u"
 #endif
 
 // asm
@@ -173,6 +182,12 @@ void getkey_stop(void)
 #include <X11/extensions/XShm.h> // XShmSegmentInfo, XShmPixmapFormat(), XShmCreateImage(), XShmAttach(), XShmDetach(), XShmPutImage()
 #include <X11/extensions/Xdbe.h> // XdbeQueryExtension()
 
+#include <fcntl.h> // open(), O_RDWR, O_CLOEXEC
+#include <sys/ioctl.h> // ioctl()
+#include <libdrm/drm.h> // drm_wait_vblank_t, DRM_IOCTL_WAIT_VBLANK
+//#include <xf86drm.h> // drmVersion
+//#include <xf86drmMode.h> // drmModeRes, drmModeGetResources(), drmModeGetConnector()
+
 // UTILITES
 
 #define InternAtom(x) do { XA_##x = XInternAtom(display, #x, False); } while (0)
@@ -185,6 +200,7 @@ static void RedrawWindow(Display *display, Window win, int count = 0)
 {
     XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, count };
     XSendEvent(display, win, False, 0 /*event_mask*/, (XEvent *) &ev);
+    XFlush(display);
 }
 
 // TIMER
@@ -199,7 +215,6 @@ static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
     if (!timer_dpy || !timer_win) return;
     // process the framebuffer refresh timer (vsync-like)
     RedrawWindow(timer_dpy, timer_win, timer_atom);
-    XFlush(timer_dpy);
 }
 
 long timer_start(Display *dpy, Window win, Atom atom, int ms)
@@ -252,6 +267,22 @@ void asm_main_call(void)
     //return NULL;
 }
 
+int wait_for_vsync(int drmfd)
+{
+    drm_wait_vblank_t u = {};
+    u.request.type = _DRM_VBLANK_RELATIVE;
+    u.request.sequence = 1;
+    return ioctl(drmfd, DRM_IOCTL_WAIT_VBLANK, &u);
+}
+
+void swap_buffers(Display *display, Window win, XdbeBackBuffer dbe)
+{
+    if (dbe) {
+        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeUndefined };
+        XdbeSwapBuffers(display, &si, 1);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int screen, depth, bitmap_pad;
@@ -263,6 +294,46 @@ int main(int argc, char *argv[])
     bool use_dbe = 1;
 
     /* GENERAL INFO */
+    int drmfd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    printf("drmfd = %d\n", drmfd);
+
+#if 0
+    // retrieve resources
+    drmModeRes *res = drmModeGetResources(drmfd);
+    if (!res) {
+        fprintf(stderr, "DRM: cannot retrieve DRM resources (%d): %m\n", errno);
+        return -errno;
+    }
+
+    // iterate all connectors
+    for (int i = 0; i < res->count_connectors; i++) {
+        // get information for each connector
+        drmModeConnector *conn = drmModeGetConnector(drmfd, res->connectors[i]);
+        if (!conn) {
+            fprintf(stderr, "DRM: cannot retrieve DRM connector %u:%u (%d): %m\n", i, res->connectors[i], errno);
+            continue;
+        }
+
+        // check if a monitor is connected
+        if (conn->connection != DRM_MODE_CONNECTED) {
+            fprintf(stderr, "DRM: ignoring unused connector %u\n", conn->connector_id);
+            return -ENOENT;
+        }
+
+        // check if there is at least one valid mode
+        if (conn->count_modes == 0) {
+            fprintf(stderr, "DRM: no valid mode for connector %u\n", conn->connector_id);
+            return -EFAULT;
+        }
+
+        // print the mode information
+        fprintf(stderr, "DRM: mode for connector %u is %ux%u\n",
+            conn->connector_id, conn->modes[0].hdisplay, conn->modes[0].vdisplay);
+
+        // free connector data
+        drmModeFreeConnector(conn);
+    }
+#endif
 
     int pagesize = sysconf(_SC_PAGE_SIZE);
     if (pagesize == -1) perror("sysconf"), exit(1);
@@ -498,8 +569,27 @@ int main(int argc, char *argv[])
         switch (ev.type) {
             case Expose: {
                 Drawable w = dbe ? dbe : win;
-                if (shared_pixmaps) XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
-                else XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                if (shared_pixmaps) {
+                    if (dbe) {
+                        XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                    } else {
+                        wait_for_vsync(drmfd);
+                        XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                    }
+                } else {
+                    if (dbe) {
+                        XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                        XFlush(display);
+                        wait_for_vsync(drmfd);
+                        swap_buffers(display, win, dbe);
+                    } else {
+                        wait_for_vsync(drmfd);
+                        XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                        XFlush(display);
+                    }
+                }
+                XEvent evtmp; // drain Expose messages
+                while (XCheckTypedEvent(display, Expose, &evtmp));
                 getkey_q.put(Key::NextFrame);
                 nredraws++;
                 break;
@@ -568,8 +658,8 @@ int main(int argc, char *argv[])
             default: {
                 if (ev.type == ShmCompletionEvent) {
                     if (dbe) {
-                        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeCopied };
-                        XdbeSwapBuffers(display, &si, 1);
+                        wait_for_vsync(drmfd);
+                        swap_buffers(display, win, dbe);
                     }
                 }
                 break;
@@ -743,19 +833,16 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             return 0;
         }
         case WM_PAINT: {
-            static unsigned prevtc = 0, prevdt = 0;
-
-            DwmFlush();
-            //unsigned tc = GetTickCount();
-            unsigned tc = timeGetTime();
-            unsigned dt = tc - prevtc;
-            if (dt != prevdt) printf("[%d] GetTickCount() = %d\n", tc, tc - prevtc);
+            static double prevtc = 0, prevdt = 0;
+            DwmFlush(); // IDXGIOutput::WaitForVBlank(); IDXGIFactory2::CreateSwapChainForHwnd() IDXGISwapChain2::GetFrameLatencyWaitableObject() D3DKMTOpenAdapterFromHdc D3DKMTWaitForVerticalBlankEvent
+            ULONGLONG tcl; QueryUnbiasedInterruptTime(&tcl);
+            double tc = tcl / 10000.0; // convert 100ns to 1ms
+            double dt = tc - prevtc;
+            if (abs(dt - prevdt) > 2) printf("[%" PRIu64 "] WM_PAINT [%.2f] frame = %.2f ms\n", GetTickCount64(), tc, dt);
             prevdt = dt;
             prevtc = tc;
-            //if (getkey_q.size()) return 0;
-
-            DWM_TIMING_INFO ti;
             /*
+            DWM_TIMING_INFO ti;
             typedef struct _DWM_TIMING_INFO {
               UINT32          cbSize;			The size of this DWM_TIMING_INFO structure.
               UNSIGNED_RATIO  rateRefresh;              The monitor refresh rate.
@@ -806,8 +893,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             HDC hdc = BeginPaint(hWnd, &ps);
             BitBlt(hdc, 0, 0, FB_WIDTH, FB_HEIGHT, gdcMem, 0, 0, SRCCOPY);
             EndPaint(hWnd, &ps);
-            nredraws++;
+            MSG msgtmp; // drain WM_PAINT messages
+            while (PeekMessage(&msgtmp, NULL, WM_PAINT, WM_PAINT, PM_REMOVE | PM_NOYIELD | PM_QS_PAINT));
             getkey_q.put(Key::NextFrame);
+            nredraws++;
             return 0;
         }
         case WM_ERASEBKGND: {
@@ -924,6 +1013,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_TIMER: {
             switch (wParam) {
                 case IDT_TIMER1:
+                    //printf("[%" PRIu64 "] WM_TIMER\n", GetTickCount64());
                     // process the framebuffer refresh timer (vsync-like)
                     InvalidateRect(hWnd, NULL, false);
                     return 0;
