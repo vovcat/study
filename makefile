@@ -1,3 +1,5 @@
+SRC=asm1.cbp asm1c.cpp asm1.cpp asm1.depend asm1.layout asm1s.S font8x13.s star.bmp wx_all.cpp wxasm.cpp wx.cpp
+
 all: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe asm1 asm1.exe
 all+: cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe asm1 asm1.exe
 
@@ -33,3 +35,21 @@ g:
 
 clean:
 	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe asm1 asm1.exe
+
+vars =	$(foreach v, $(filter-out .VARIABLES vars, $(.VARIABLES)),	\
+		$(if $(filter-out environment, $(origin $(v))),		\
+			$(info [$(origin $(v))] $(v) = $($(v)))		\
+		)							\
+	)
+
+MNT=/mnt/win/deti/d
+DIR=$(MNT)/vmproj/asm1
+
+get:
+	sudo mount $(MNT)
+	cd "$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
+	sudo umount $(MNT)
+put:
+	sudo mount $(MNT)
+	cp -p -t "$(DIR)" $(SRC)
+	sudo umount $(MNT)
