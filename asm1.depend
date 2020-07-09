@@ -1,5 +1,6 @@
 # depslib dependency file v1.0
-1594229220 source:d:\vmproj\asm1\wx.cpp
+1594296829 source:d:\vmproj\asm1\wx.cpp
+	<inttypes.h>
 	<stdio.h>
 	<unistd.h>
 	<string.h>
@@ -44,4 +45,4 @@
 
 1593569556 source:d:\vmproj\asm1\font8x13.s
 
-1594215181 source:d:\vmproj\asm1\asm1s.s
+1594303044 source:d:\vmproj\asm1\asm1s.s

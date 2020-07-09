@@ -3,34 +3,34 @@
 
 object.next = 0
 object.type = 4
+object.testxy = 8
+object.move = 12
+object.end = 16
 
 type.star = 1
-star.type = 4
-star.x = 8
-star.y = 12
-star.vx = 16
-star.vy = 20
+star.x = object.end
+star.y = star.x + 4
+star.vx = star.y + 4
+star.vy = star.vx + 4
 
 type.circle = 2
-circle.type = 4
-circle.x = 8
-circle.y = 12
-circle.vx = 16
-circle.vy = 20
-circle.colour = 24
-circle.radius = 28
-circle_size = 32
+circle.x = object.end
+circle.y = circle.x + 4
+circle.vx = circle.y + 4
+circle.vy = circle.vx + 4
+circle.colour = circle.vy + 4
+circle.radius = circle.colour + 4
+circle_size = circle.radius + 4
 
 type.str = 3
-str.type = 4
-str.x = 8
-str.y = 12
-str.vx = 16
-str.vy = 20
-str.color = 24
-str.string = 28
-str.len = 32
-str_size = 36
+str.x = object.end
+str.y = str.x + 4
+str.vx = str.y + 4
+str.vy = str.vx + 4
+str.color = str.vy + 4
+str.string = str.color + 4
+str.len = str.string + 4
+str_size = str.len + 4
 
 #.=0040d000
 dt: .int .
@@ -239,7 +239,7 @@ next:
     jne 1f
 
     // MouseLeft
-    call create_circle
+    call circle_create
     mov ebx, eax
     mov eax, offset obj_list
     call list_add
@@ -249,7 +249,7 @@ next:
     jne 1f
 
     // MouseRight
-    call create_string
+    call string_create
     mov ebx, eax
     mov eax, offset obj_list
     call list_add
@@ -259,6 +259,9 @@ next:
     jne 1f
 
     // MouseMove
+    mov eax, offset obj_list
+    mov ebx, offset popaDOS
+    call list_walk
     jmp next
 
 1:  cmp ebx, 0x1ff # NextFrame
@@ -272,6 +275,33 @@ next:
 
 1:  // nothing of the above
     jmp next
+
+popaDOS:
+    pusha
+1:  push eax
+    mov ebx, [mouse.x]
+    mov ecx, [mouse.y]
+    call [eax + object.testxy]     # object->testxy(mouse.x, mouse.y)
+    test eax, eax
+    pop eax
+    jz 1f
+    push eax
+    push ebx
+    push ecx
+    mov ebx, 0
+    mov ecx, 0
+    push eax
+    call rand
+    mov edx, eax
+    pop eax
+    mov [eax + str.color], edx
+    call [eax + object.move]     # object->move(3, 3)
+    pop ecx
+    pop ebx
+    pop eax
+    #jmp 1b
+1:  popa
+    ret
 
 //
 // ALLOC
@@ -377,26 +407,26 @@ rand_good:
 animate:
     # animate_star(&star1); // is equivalent of animate_s1();
     mov eax, offset star1
-    call animate_star
+    call star_animate
 
     # animate_star(&star2);
     mov eax, offset star2
-    call animate_star
+    call star_animate
 
 /*
     mov eax, offset Circle1
-    call animate_circle
+    call circle_animate
 
     mov eax, offset Circle2
-    call animate_circle
+    call circle_animate
 
     # animate_str(&str1);
     mov eax, offset str1
-    call animate_str
+    call str_animate
 
     # animate_str(&str2);
     mov eax, offset str2
-    call animate_str
+    call str_animate
 
     # fill screen with random dots
     mov ecx, 300	# pixels per frame
@@ -444,7 +474,7 @@ animate_obj:
     // type.circle
     push eax
     push ebx
-    call animate_circle
+    call circle_animate
     pop ebx
     pop eax
     jmp 4f
@@ -455,7 +485,7 @@ animate_obj:
     // type.str
     push eax
     push ebx
-    call animate_str
+    call str_animate
     pop ebx
     pop eax
     jmp 4f
@@ -472,6 +502,8 @@ animate_obj:
 star1:
     /*next*/ .int 0
     /*type*/ .int type.star
+             .int 0
+             .int 0
     /*  x */ .int 0
     /*  y */ .int 500
     /* vx */ .int 8
@@ -481,6 +513,8 @@ star1:
 star2:
     /*next*/ .int 0
     /*type*/ .int type.star
+             .int 0
+             .int 0
     /*  x */ .int 100
     /*  y */ .int 100
     /* vx */ .int 1
@@ -488,7 +522,7 @@ star2:
 
 // function animate_star(star *s (eax));
 
-animate_star:
+star_animate:
     mov esi, eax
     mov eax, [esi + star.x]
     mov ebx, [esi + star.y]
@@ -634,8 +668,7 @@ Circle2:
 
 // circle *create_circle(void)
 
-create_circle:
-
+circle_create:
     mov eax, circle_size
     call malloc
     mov esi, eax
@@ -644,7 +677,9 @@ create_circle:
 
     mov eax, [mouse.x]
     mov ebx, [mouse.y]
-    mov dword ptr [esi + circle.type], type.circle
+    mov dword ptr [esi + object.type], type.circle
+    mov dword ptr [esi + object.testxy], offset circle_testxy
+    mov dword ptr [esi + object.move], offset circle_move
 
     mov [esi + circle.x], eax               #x
     mov [esi + circle.y], ebx               #y
@@ -676,9 +711,9 @@ create_circle:
     mov eax, esi
 1:  ret
 
-// void animate_circle(circle *eax)
+// void circle_animate(circle *eax)
 
-animate_circle:
+circle_animate:
     mov esi, eax
 
     mov eax, [esi + circle.vy]
@@ -740,6 +775,75 @@ animate_circle:
 1:  mov [esi + circle.y], ebx
 
     mov ecx, [esi + circle.colour]
+    call PutCircle
+    ret
+
+// int circle_testxy(circle *eax, int (ebx) x, int (ecx) y)
+
+circle_testxy:
+    sub ebx, [eax + circle.x]
+    sub ecx, [eax + circle.y]
+    imul ebx, ebx
+    imul ecx, ecx
+    add ebx, ecx
+    mov ecx, [eax + circle.radius]
+    imul ecx, ecx
+    cmp ebx, ecx
+    jg 1f
+    mov eax, 1
+    jmp 2f
+1:  xor eax, eax
+2:  ret
+
+// void circle_move(circle *eax, int (ebx) dx, int (ecx) dy)
+
+circle_move:
+    mov esi, eax
+    pusha
+    mov eax, [esi + circle.x]
+    mov ebx, [esi + circle.y]
+    mov edx, [esi + circle.radius]
+    cmp eax, edx
+    jl 1f
+    mov ecx, 800
+    sub ecx, edx
+    cmp eax, ecx
+    jg 1f
+    cmp ebx, edx
+    jl 1f
+    mov ecx, 600
+    sub ecx, edx
+    cmp ebx, ecx
+    jg 1f
+    xor ecx, ecx
+    call PutCircle
+1:  popa
+    mov eax, [esi + circle.x]
+    add eax, ebx # dx
+    mov edi, 800
+    sub edi, [esi + circle.radius]
+    cmp eax, edi
+    jle 1f
+    mov eax, edi
+1:  cmp eax, [esi + circle.radius]
+    jg 1f
+    mov eax, [esi + circle.radius]
+1:  mov [esi + circle.x], eax
+
+    mov ebx, [esi + circle.y]
+    add ebx, ecx # dy
+    mov edi, 600
+    sub edi, [esi + circle.radius]
+    cmp ebx, edi
+    jle 1f
+    mov ebx, edi
+1:  cmp ebx, [esi + circle.radius]
+    jg 1f
+    mov ebx, [esi + circle.radius]
+1:  mov [esi + circle.y], ebx
+
+    mov ecx, [esi + circle.colour]
+    mov edx, [esi + circle.radius]
     call PutCircle
     ret
 
@@ -1024,8 +1128,7 @@ str2:
 
 // str *create_string(void)
 
-create_string:
-
+string_create:
     mov eax, str_size
     call malloc
     mov esi, eax
@@ -1034,7 +1137,9 @@ create_string:
 
     mov eax, [mouse.x]
     mov ebx, [mouse.y]
-    mov dword ptr [esi + str.type], type.str
+    mov dword ptr [esi + object.type], type.str
+    mov dword ptr [esi + object.testxy], offset str_testxy
+    mov dword ptr [esi + object.move], offset str_move
 
     mov [esi + str.x], eax                              #x
     mov [esi + str.y], ebx                              #y
@@ -1071,9 +1176,9 @@ create_string:
     mov eax, esi
 3:  ret
 
-// void animate_str(str *eax)
+// void str_animate(str *eax)
 
-animate_str:
+str_animate:
     mov esi, eax
     mov eax, [esi + str.x]
     mov ebx, [esi + str.y]
@@ -1121,6 +1226,79 @@ animate_str:
     cmp ebx, 0
     jg 1f
     neg dword ptr [esi + str.vy]
+    mov ebx, 0
+1:  mov [esi + str.y], ebx
+
+    mov ecx, [esi + str.color]
+    call PutStr
+    ret
+
+// int str_testxy (str *eax, int (ebx) x, int (ecx) y)
+
+str_testxy:
+    cmp ebx, [eax + str.x]
+    jl 1f
+    imul edx, [eax + str.len], letter.width
+    add edx, [eax + str.x]
+    cmp ebx, edx
+    jge 1f
+    cmp ecx, [eax + str.y]
+    jl 1f
+    mov edx, [eax + str.y]
+    add edx, letter.height
+    cmp ecx, edx
+    jge 1f
+    mov eax, 1
+    jmp 2f
+1:  xor eax, eax
+2:  ret
+
+// void str_move (str *eax, int (ebx) dx, int (ecx) dy)
+
+str_move:
+    mov esi, eax
+    pusha
+    mov eax, [esi + str.x]
+    mov ebx, [esi + str.y]
+    mov edx, [esi + str.len]
+    imul edx, edx, letter.width
+    mov ecx, 800
+    sub ecx, edx
+    cmp eax, ecx
+    jg 1f
+    mov ecx, 600 - letter.height
+    cmp ebx, ecx
+    jg 1f
+    mov edx, [esi + str.string]
+    xor ecx, ecx
+    call PutStr
+1:  popa
+
+    mov edx, [esi + str.string]
+    mov edi, [esi + str.len]
+    shl edi, 3
+
+    mov eax, [esi + str.x]
+    add eax, ebx
+    add eax, edi
+    cmp eax, 800
+    jl 1f
+    mov eax, 800
+1:  sub eax, edi
+    cmp eax, 0
+    jg 1f
+    mov eax, 0
+1:  mov [esi + str.x], eax
+
+    mov ebx, [esi + str.y]
+    add ebx, ecx
+    add ebx, letter.height
+    cmp ebx, 600
+    jl 1f
+    mov ebx, 600
+1:  sub ebx, letter.height
+    cmp ebx, 0
+    jg 1f
     mov ebx, 0
 1:  mov [esi + str.y], ebx
 
