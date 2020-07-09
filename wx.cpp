@@ -6,7 +6,7 @@
 #include <inttypes.h> // PRIu64
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
-#include <string.h> // strstr()
+#include <string.h> // strstr(), memcmp()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -75,7 +75,11 @@ extern "C" {
     void asm_main_text(void);
 }
 
-//#include "wxasm.cpp"
+// Globals
+
+static int debug = 0;
+static int benchmark = 0;
+static int nredraws = 0;
 
 // getkey()
 
@@ -132,7 +136,7 @@ const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
-framebuf_t framebuf;
+framebuf_t framebuf, oldframebuf;
 framebuf_t *pframebuf = &framebuf;
 
 int waitkey(void)
@@ -293,47 +297,15 @@ int main(int argc, char *argv[])
     bool use_shared_pixmaps = 1;
     bool use_dbe = 1;
 
+    /* GLOBALS */
+    debug = 0;
+    benchmark = 0;
+    nredraws = 0;
+
     /* GENERAL INFO */
     int drmfd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    if (drmfd == -1) perror("open /dev/dri/card0"), exit(1);
     printf("drmfd = %d\n", drmfd);
-
-#if 0
-    // retrieve resources
-    drmModeRes *res = drmModeGetResources(drmfd);
-    if (!res) {
-        fprintf(stderr, "DRM: cannot retrieve DRM resources (%d): %m\n", errno);
-        return -errno;
-    }
-
-    // iterate all connectors
-    for (int i = 0; i < res->count_connectors; i++) {
-        // get information for each connector
-        drmModeConnector *conn = drmModeGetConnector(drmfd, res->connectors[i]);
-        if (!conn) {
-            fprintf(stderr, "DRM: cannot retrieve DRM connector %u:%u (%d): %m\n", i, res->connectors[i], errno);
-            continue;
-        }
-
-        // check if a monitor is connected
-        if (conn->connection != DRM_MODE_CONNECTED) {
-            fprintf(stderr, "DRM: ignoring unused connector %u\n", conn->connector_id);
-            return -ENOENT;
-        }
-
-        // check if there is at least one valid mode
-        if (conn->count_modes == 0) {
-            fprintf(stderr, "DRM: no valid mode for connector %u\n", conn->connector_id);
-            return -EFAULT;
-        }
-
-        // print the mode information
-        fprintf(stderr, "DRM: mode for connector %u is %ux%u\n",
-            conn->connector_id, conn->modes[0].hdisplay, conn->modes[0].vdisplay);
-
-        // free connector data
-        drmModeFreeConnector(conn);
-    }
-#endif
 
     int pagesize = sysconf(_SC_PAGE_SIZE);
     if (pagesize == -1) perror("sysconf"), exit(1);
@@ -568,25 +540,29 @@ int main(int argc, char *argv[])
         XNextEvent(display, &ev);
         switch (ev.type) {
             case Expose: {
-                Drawable w = dbe ? dbe : win;
-                if (shared_pixmaps) {
-                    if (dbe) {
-                        XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                XExposeEvent *xev = &ev.xexpose;
+                if (xev->count != (int)XA_NULL || memcmp(&oldframebuf, pframebuf, sizeof(oldframebuf)) != 0) {
+                    Drawable w = dbe ? dbe : win;
+                    if (shared_pixmaps) {
+                        if (dbe) {
+                            XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                        } else {
+                            wait_for_vsync(drmfd);
+                            XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 0/*send_event*/);
+                        }
                     } else {
-                        wait_for_vsync(drmfd);
-                        XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                        if (dbe) {
+                            XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                            XFlush(display);
+                            wait_for_vsync(drmfd);
+                            swap_buffers(display, win, dbe);
+                        } else {
+                            wait_for_vsync(drmfd);
+                            XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                            XFlush(display);
+                        }
                     }
-                } else {
-                    if (dbe) {
-                        XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
-                        XFlush(display);
-                        wait_for_vsync(drmfd);
-                        swap_buffers(display, win, dbe);
-                    } else {
-                        wait_for_vsync(drmfd);
-                        XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
-                        XFlush(display);
-                    }
+                    memcpy(&oldframebuf, pframebuf, sizeof(oldframebuf));
                 }
                 XEvent evtmp; // drain Expose messages
                 while (XCheckTypedEvent(display, Expose, &evtmp));
@@ -719,14 +695,9 @@ int main(int argc, char *argv[])
 #define GET_Y_LPARAM(lp) ((int)(short)HIWORD(lp))
 #endif
 
-HWND gWnd = 0;
-HANDLE gThread = 0;
+static HWND gWnd = 0;
+static HANDLE gThread = 0;
 static BOOL gModalState = false; // Is messagebox shown
-
-static int debug = 0;
-static int benchmark = 0;
-int nredraws = 0;
-int start = 20;
 
 asm volatile (R"(
     # export to wxasm.cpp
@@ -775,7 +746,7 @@ int usleep(useconds_t usec)
 
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    static HDC gdcMem;
+    static HDC hdcMem;
     static HBITMAP gBitmap;
     static UINT_PTR gTimer1;
     static RECT rcClient; // client area rectangle
@@ -792,10 +763,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             bmi.bmiHeader.biSizeImage = ((((FB_WIDTH * bmi.bmiHeader.biBitCount) + 31) & ~31) >> 3) * FB_HEIGHT;
 
             HDC hdc = GetDC(hWnd);
-            gdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
+            hdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
             gBitmap = CreateDIBSection(hdc, &bmi, DIB_RGB_COLORS, (void **)&pframebuf, NULL, 0);
             if (pframebuf) memcpy(pframebuf, &framebuf, sizeof(*pframebuf));
-            HGDIOBJ old = SelectObject(gdcMem, gBitmap);
+            HGDIOBJ old = SelectObject(hdcMem, gBitmap);
             DeleteObject(old); // release the 1x1@1bpp default bitmap
             ReleaseDC(hWnd, hdc);
 
@@ -827,71 +798,28 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             gWnd = 0;
 
                 DeleteObject(gBitmap);
-                DeleteDC(gdcMem);
+                DeleteDC(hdcMem);
 
             PostQuitMessage(0);
             return 0;
         }
+        case WM_TIMER: {
+            switch (wParam) {
+                case IDT_TIMER1:
+                    // process the framebuffer refresh timer (vsync-like)
+                    InvalidateRect(hWnd, NULL, false);
+                    return 0;
+            }
+            break;
+        }
         case WM_PAINT: {
-            static double prevtc = 0, prevdt = 0;
-            DwmFlush(); // IDXGIOutput::WaitForVBlank(); IDXGIFactory2::CreateSwapChainForHwnd() IDXGISwapChain2::GetFrameLatencyWaitableObject() D3DKMTOpenAdapterFromHdc D3DKMTWaitForVerticalBlankEvent
-            ULONGLONG tcl; QueryUnbiasedInterruptTime(&tcl);
-            double tc = tcl / 10000.0; // convert 100ns to 1ms
-            double dt = tc - prevtc;
-            if (abs(dt - prevdt) > 2) printf("[%" PRIu64 "] WM_PAINT [%.2f] frame = %.2f ms\n", GetTickCount64(), tc, dt);
-            prevdt = dt;
-            prevtc = tc;
-            /*
-            DWM_TIMING_INFO ti;
-            typedef struct _DWM_TIMING_INFO {
-              UINT32          cbSize;			The size of this DWM_TIMING_INFO structure.
-              UNSIGNED_RATIO  rateRefresh;              The monitor refresh rate.
-              QPC_TIME        qpcRefreshPeriod;         The monitor refresh period.
-              UNSIGNED_RATIO  rateCompose;              The composition rate.
-              QPC_TIME        qpcVBlank;                The query performance counter value before the vertical blank.
-              DWM_FRAME_COUNT cRefresh;                 The DWM refresh counter.
-              UINT            cDXRefresh;               The DirectX refresh counter.
-              QPC_TIME        qpcCompose;               The query performance counter value for a frame composition.
-              DWM_FRAME_COUNT cFrame;                   The frame number that was composed at qpcCompose.
-              UINT            cDXPresent;               The DirectX present number used to identify rendering frames.
-              DWM_FRAME_COUNT cRefreshFrame;            The refresh count of the frame that was composed at qpcCompose.
-              DWM_FRAME_COUNT cFrameSubmitted;          The DWM frame number that was last submitted.
-              UINT            cDXPresentSubmitted;      The DirectX present number that was last submitted.
-              DWM_FRAME_COUNT cFrameConfirmed;          The DWM frame number that was last confirmed as presented.
-              UINT            cDXPresentConfirmed;      The DirectX present number that was last confirmed as presented.
-              DWM_FRAME_COUNT cRefreshConfirmed;        The target refresh count of the last frame confirmed as completed by the GPU.
-              UINT            cDXRefreshConfirmed;      The DirectX refresh count when the frame was confirmed as presented.
-              DWM_FRAME_COUNT cFramesLate;              The number of frames the DWM presented late.
-              UINT            cFramesOutstanding;       The number of composition frames that have been issued but have not been confirmed as completed.
-              DWM_FRAME_COUNT cFrameDisplayed;          The last frame displayed.
-              QPC_TIME        qpcFrameDisplayed;        The QPC time of the composition pass when the frame was displayed.
-              DWM_FRAME_COUNT cRefreshFrameDisplayed;   The vertical refresh count when the frame should have become visible.
-              DWM_FRAME_COUNT cFrameComplete;           The ID of the last frame marked as completed.
-              QPC_TIME        qpcFrameComplete;         The QPC time when the last frame was marked as completed.
-              DWM_FRAME_COUNT cFramePending;            The ID of the last frame marked as pending.
-              QPC_TIME        qpcFramePending;          The QPC time when the last frame was marked as pending.
-              DWM_FRAME_COUNT cFramesDisplayed;         The number of unique frames displayed. This value is valid only after a second call to the DwmGetCompositionTimingInfo function.
-              DWM_FRAME_COUNT cFramesComplete;          The number of new completed frames that have been received.
-              DWM_FRAME_COUNT cFramesPending;           The number of new frames submitted to DirectX but not yet completed.
-              DWM_FRAME_COUNT cFramesAvailable;         The number of frames available but not displayed, used, or dropped. This value is valid only after a second call to DwmGetCompositionTimingInfo.
-              DWM_FRAME_COUNT cFramesDropped;           The number of rendered frames that were never displayed because composition occurred too late. This value is valid only after a second call to DwmGetCompositionTimingInfo.
-              DWM_FRAME_COUNT cFramesMissed;            The number of times an old frame was composed when a new frame should have been used but was not available.
-              DWM_FRAME_COUNT cRefreshNextDisplayed;    The frame count at which the next frame is scheduled to be displayed.
-              DWM_FRAME_COUNT cRefreshNextPresented;    The frame count at which the next DirectX present is scheduled to be displayed.
-              DWM_FRAME_COUNT cRefreshesDisplayed;      The total number of refreshes that have been displayed for the application since the DwmSetPresentParameters function was last called.
-              DWM_FRAME_COUNT cRefreshesPresented;      The total number of refreshes that have been presented by the application since DwmSetPresentParameters was last called.
-              DWM_FRAME_COUNT cRefreshStarted;          The refresh number when content for this window started to be displayed.
-              ULONGLONG       cPixelsReceived;          The total number of pixels DirectX redirected to the DWM.
-              ULONGLONG       cPixelsDrawn;             The number of pixels drawn.
-              DWM_FRAME_COUNT cBuffersEmpty;            The number of empty buffers in the flip chain.
-            } DWM_TIMING_INFO;
-            ti.cbSize = sizeof(ti);
-            DWMAPI DwmGetCompositionTimingInfo(hWnd, DWM_TIMING_INFO *pTimingInfo);
-            */
-
+            DwmFlush();
             PAINTSTRUCT ps = {};
             HDC hdc = BeginPaint(hWnd, &ps);
-            BitBlt(hdc, 0, 0, FB_WIDTH, FB_HEIGHT, gdcMem, 0, 0, SRCCOPY);
+            if (memcmp(&oldframebuf, pframebuf, sizeof(oldframebuf)) != 0) {
+                BitBlt(hdc, 0, 0, FB_WIDTH, FB_HEIGHT, hdcMem, 0, 0, SRCCOPY);
+                memcpy(&oldframebuf, pframebuf, sizeof(oldframebuf));
+            }
             EndPaint(hWnd, &ps);
             MSG msgtmp; // drain WM_PAINT messages
             while (PeekMessage(&msgtmp, NULL, WM_PAINT, WM_PAINT, PM_REMOVE | PM_NOYIELD | PM_QS_PAINT));
@@ -904,7 +832,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
         case WM_MOVE:
         case WM_SIZE: {
-            GetWindowRect(hWnd, &rcClient);
+            RECT rect;
+            GetClientRect(hWnd, &rect);
+            POINT ptClientUL = { rect.left, rect.top };
+            ClientToScreen(hWnd, &ptClientUL);
+            POINT ptClientLR = { rect.right, rect.bottom };
+            ClientToScreen(hWnd, &ptClientLR);
+            rcClient = { ptClientUL.x, ptClientUL.y, ptClientLR.x, ptClientLR.y };
             break;
         }
 
@@ -1008,17 +942,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             if (key == 'q') DestroyWindow(hWnd); // Quit
             return 0;
-        }
-
-        case WM_TIMER: {
-            switch (wParam) {
-                case IDT_TIMER1:
-                    //printf("[%" PRIu64 "] WM_TIMER\n", GetTickCount64());
-                    // process the framebuffer refresh timer (vsync-like)
-                    InvalidateRect(hWnd, NULL, false);
-                    return 0;
-            }
-            break;
         }
 
         case WM_COMMAND: {
@@ -1130,7 +1053,7 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     GdiFlush();
     UpdateWindow(hWnd);
 
-    if(!SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
+    if (!SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
         MessageBox(NULL, "Can't set priority class!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
         return 1;
     }

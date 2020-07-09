@@ -12,7 +12,7 @@ cv_win.exe: cv_win.cpp
 wx_all: wx_all.cpp wxasm.cpp auto.h debX11.cpp debWin.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx_all.cpp wxasm.cpp -o wx_all -lX11 -lXext -lpthread #&& ./wx_all
 wx_all.exe: wx_all.cpp wxasm.cpp auto.h debX11.cpp debWin.cpp
-	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc -static-libstdc++ wx_all.cpp wxasm.cpp -o wx_all.exe -lgdi32 -lws2_32 -lwinmm -lavrt #&& wine ./wx_all.exe
+	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc -static-libstdc++ wx_all.cpp wxasm.cpp -o wx_all.exe -lgdi32 -lws2_32 -lwinmm -lavrt -ldwmapi #&& wine ./wx_all.exe
 wx: wx.cpp font8x13.s wxasm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti wx.cpp font8x13.s wxasm.cpp -o wx -lX11 -lXext -lpthread #&& ./wx
 wx.exe: wx.cpp font8x13.s wxasm.cpp

@@ -21,9 +21,10 @@ X11:
 
 #define _WIN32_WINNT 0x0601 // Windows 7
 
+#include <inttypes.h> // PRIu64
 #include <stdio.h> // printf()
 #include <unistd.h> // usleep()
-#include <string.h> // strstr()
+#include <string.h> // strstr(), memcmp()
 
 #include <algorithm> // std::min()
 #include <string>
@@ -40,6 +41,14 @@ X11:
 #define ARRAYSIZE(a) ARRAY_SIZE(s)
 #endif
 
+#ifndef PRId64
+#define PRId64 "I64d"
+#endif
+
+#ifndef PRIu64
+#define PRIu64 "I64u"
+#endif
+
 // asm
 
 struct Key {
@@ -52,7 +61,7 @@ struct Key {
         Home = 0x130, Left, Up, Right, Down, PgUp, PgDn, End, //FirstFnKey = F1, LastFnKey = 0x1cf,
         MouseMove = 0x1d0, MouseLeft = 0x1d1, MouseMiddle, MouseRight, MousePgUp, MousePgDn, MouseX1, MouseX2,
         /*Release*/ MouseRelLeft = 0x1e1, MouseRelMiddle, MouseRelRight, MouseRelPgUp, MouseRelPgDn, MouseRelX1, MouseRelX2,
-        MAX = 0x1ff, SIZE = 0x200
+        NextFrame = 0x1ff, MAX = 0x1ff, SIZE = 0x200
     };
     enum StateEnum : int {
         StateShift =		0x01,
@@ -87,7 +96,11 @@ extern "C" {
     void asm_main_text(void);
 }
 
-//#include "wxasm.cpp"
+// Globals
+
+static int debug = 0;
+static int benchmark = 0;
+static int nredraws = 0;
 
 // getkey()
 
@@ -116,8 +129,9 @@ void getkey_stop_thread(void)
 
 #elif defined(WIN32)
 
-#include <queue>
 #include <windows.h>
+#include <avrt.h>
+#include <queue>
 
 template<typename T> struct cqueue
 {
@@ -126,7 +140,7 @@ template<typename T> struct cqueue
     CONDITION_VARIABLE cv;
     size_t size() const { EnterCriticalSection(&m); auto sz = q.size(); LeaveCriticalSection(&m); return sz; }
     T get() { EnterCriticalSection(&m); while (q.empty()) SleepConditionVariableCS(&cv, &m, INFINITE); T r = q.front(); q.pop(); LeaveCriticalSection(&m); return r; }
-    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); }
+    void put(const T v) { EnterCriticalSection(&m); q.push(v); LeaveCriticalSection(&m); WakeConditionVariable(&cv); SwitchToThread(); }
     cqueue() { InitializeCriticalSection(&m); InitializeConditionVariable(&cv); }
 };
 
@@ -192,6 +206,7 @@ static const struct {
     TAB(Key::MouseRelPgDn),
     TAB(Key::MouseRelX1),
     TAB(Key::MouseRelX2),
+    TAB(Key::NextFrame),
 #undef TAB
 };
 
@@ -220,13 +235,13 @@ const char *KeyName(int key) {
 
 int getkey_wait(int wait);
 
-const unsigned FPS = 30;
+const unsigned FPS = 60;
 const unsigned FPS_DELAY = 1000 / FPS - 1;
 const int keydelay = 900; //us
 bool getkey_down = false;
 cqueue<int> getkey_q;
 
-framebuf_t framebuf;
+framebuf_t framebuf, oldframebuf;
 framebuf_t *pframebuf = &framebuf;
 
 int waitkey(void)
@@ -266,11 +281,11 @@ int getkey_wait(int wait)
     //if (gWnd) return SendMessage(gWnd, WM_USER, !!wait, 0);
 
     if (getkey_q.size() == 0) usleep(keydelay);
-    if (!wait && getkey_q.size() == 0) return 0;
+    if (!wait && getkey_q.size() == 0) return Key::Nokey;
 
-    auto key = getkey_q.get();
+    int key = getkey_q.get();
     std::chrono::duration<double, std::micro> ti = std::chrono::high_resolution_clock::now() - firstcall;
-    printf("=== key=%s %08x (%d calls in %.2fs = %.2f calls/s = %.2fus/call)\n", KeyName(key), key,
+    if (debug) printf("=== key=%s %08x (%d calls in %.2fs = %.2f calls/s = %.2fus/call)\n", KeyName(key), key,
         ncalls, ti.count() / 1e6, 1e6 * ncalls / ti.count(), ti.count() / ncalls);
     return key;
 }
@@ -303,6 +318,11 @@ int getkey_wait(int wait)
 
 #include "auto.h"
 #include "debX11.cpp"
+#include <fcntl.h> // open(), O_RDWR, O_CLOEXEC
+#include <sys/ioctl.h> // ioctl()
+#include <libdrm/drm.h> // drm_wait_vblank_t, DRM_IOCTL_WAIT_VBLANK
+//#include <xf86drm.h> // drmVersion
+//#include <xf86drmMode.h> // drmModeRes, drmModeGetResources(), drmModeGetConnector()
 
 // UTILITES
 
@@ -348,6 +368,7 @@ static void RedrawWindow(Display *display, Window win, int count = 0)
 {
     XExposeEvent ev = { Expose, 0, True, display, win, 0, 0, FB_WIDTH, FB_HEIGHT, count };
     XSendEvent(display, win, False, 0 /*event_mask*/, (XEvent *) &ev);
+    XFlush(display);
 }
 
 // TIMER
@@ -380,8 +401,8 @@ static void timer_alarm(int/*sig*/, siginfo_t */*si*/, void */*ucontext*/)
     if (!timer_dpy || !timer_win) return;
     //XClientMessageEvent ev = { ClientMessage, 0, True, timer_dpy, timer_win, timer_atom, 32, {.l = {ms}} };
     //XSendEvent(timer_dpy, timer_win, False, 0 /*event_mask*/, (XEvent *) &ev);
+    // process the framebuffer refresh timer (vsync-like)
     RedrawWindow(timer_dpy, timer_win, timer_atom);
-    XFlush(timer_dpy);
 }
 
 long timer_start(Display *dpy, Window win, Atom atom, int ms)
@@ -434,6 +455,22 @@ void asm_main_call(void)
     //return NULL;
 }
 
+int wait_for_vsync(int drmfd)
+{
+    drm_wait_vblank_t u = {};
+    u.request.type = _DRM_VBLANK_RELATIVE;
+    u.request.sequence = 1;
+    return ioctl(drmfd, DRM_IOCTL_WAIT_VBLANK, &u);
+}
+
+void swap_buffers(Display *display, Window win, XdbeBackBuffer dbe)
+{
+    if (dbe) {
+        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeUndefined };
+        XdbeSwapBuffers(display, &si, 1);
+    }
+}
+
 int main(int argc, char *argv[])
 {
     int screen, depth, bitmap_pad;
@@ -445,6 +482,47 @@ int main(int argc, char *argv[])
     bool use_dbe = 1;
 
     /* GENERAL INFO */
+    int drmfd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    if (drmfd == -1) perror("open /dev/dri/card0"), exit(1);
+    printf("drmfd = %d\n", drmfd);
+
+#if 0
+    // retrieve resources
+    drmModeRes *res = drmModeGetResources(drmfd);
+    if (!res) {
+        fprintf(stderr, "DRM: cannot retrieve DRM resources (%d): %m\n", errno);
+        return -errno;
+    }
+
+    // iterate all connectors
+    for (int i = 0; i < res->count_connectors; i++) {
+        // get information for each connector
+        drmModeConnector *conn = drmModeGetConnector(drmfd, res->connectors[i]);
+        if (!conn) {
+            fprintf(stderr, "DRM: cannot retrieve DRM connector %u:%u (%d): %m\n", i, res->connectors[i], errno);
+            continue;
+        }
+
+        // check if a monitor is connected
+        if (conn->connection != DRM_MODE_CONNECTED) {
+            fprintf(stderr, "DRM: ignoring unused connector %u\n", conn->connector_id);
+            return -ENOENT;
+        }
+
+        // check if there is at least one valid mode
+        if (conn->count_modes == 0) {
+            fprintf(stderr, "DRM: no valid mode for connector %u\n", conn->connector_id);
+            return -EFAULT;
+        }
+
+        // print the mode information
+        fprintf(stderr, "DRM: mode for connector %u is %ux%u\n",
+            conn->connector_id, conn->modes[0].hdisplay, conn->modes[0].vdisplay);
+
+        // free connector data
+        drmModeFreeConnector(conn);
+    }
+#endif
 
     int pagesize = sysconf(_SC_PAGE_SIZE);
     if (pagesize == -1) perror("sysconf"), exit(1);
@@ -1067,26 +1145,50 @@ int main(int argc, char *argv[])
         XNextEvent(display, &ev);
         switch (ev.type) {
             case Expose: {
-                static int cnt = 1;
-                XExposeEvent *xev = (XExposeEvent *) &ev;
-                if (0) debX11ev(win, &ev, "[%d] serial=%lu xy=%d,%d wh=%d,%d count=%d", cnt++,
+                XExposeEvent *xev = &ev.xexpose;
+
+                static int prevcount, cnt = 1;
+                if (0 && prevcount != xev->count) debX11ev(win, &ev, "[%d] serial=%lu xy=%d,%d wh=%d,%d count=%d", cnt++,
                     xev->serial, xev->x, xev->y, xev->width, xev->height, xev->count);
+                prevcount = xev->count;
 
-                Drawable w = dbe ? dbe : win;
-                if (shared_pixmaps) XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
-                else XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
-
-                if (1) {
-                    XSetForeground(display, gc, XWhitePixel(display, screen));
-                    XFillRectangle(display, w, gc, 20, 20, 10, 10);
-                    XDrawString(display, w, gc, 10, 50, msg, strlen(msg));
-                    // Draw the line
-                    //GC gc = XCreateGC(display, win, 0, NULL);
-                    //XSetForeground(display, gc, WhitePixel(display, screen));
-                    XSetForeground(display, gc, 0xff1133);
-                    XDrawLine(display, w, gc, 40, 20, 90, 30);
-                    //XFlush(display);
+                if (xev->count != (int)XA_NULL || memcmp(&oldframebuf, pframebuf, sizeof(oldframebuf)) != 0) {
+                    Drawable w = dbe ? dbe : win;
+                    if (shared_pixmaps) {
+                        if (dbe) {
+                            XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 1/*send_event*/);
+                        } else {
+                            wait_for_vsync(drmfd);
+                            XShmPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT, 0/*send_event*/);
+                        }
+                    } else {
+                        if (dbe) {
+                            XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                            XFlush(display);
+                            wait_for_vsync(drmfd);
+                            swap_buffers(display, win, dbe);
+                        } else {
+                            wait_for_vsync(drmfd);
+                            XPutImage(display, w, gc, shmimg, 0, 0 /*src*/, 0, 0 /*dest*/, FB_WIDTH, FB_HEIGHT);
+                            XFlush(display);
+                        }
+                    }
+                    if (1) {
+                        XSetForeground(display, gc, XWhitePixel(display, screen));
+                        XFillRectangle(display, w, gc, 20, 20, 10, 10);
+                        XDrawString(display, w, gc, 10, 50, msg, strlen(msg));
+                        // Draw the line
+                        //GC gc = XCreateGC(display, win, 0, NULL);
+                        //XSetForeground(display, gc, WhitePixel(display, screen));
+                        XSetForeground(display, gc, 0xff1133);
+                        XDrawLine(display, w, gc, 40, 20, 90, 30);
+                        //XFlush(display);
+                    }
+                    memcpy(&oldframebuf, pframebuf, sizeof(oldframebuf));
                 }
+                XEvent evtmp; // drain Expose messages
+                while (XCheckTypedEvent(display, Expose, &evtmp));
+                getkey_q.put(Key::NextFrame);
                 nredraws++;
                 break;
             }
@@ -1259,8 +1361,8 @@ int main(int argc, char *argv[])
                             sce->major_code, sce->minor_code, sce->shmseg, sce->offset);
                     }
                     if (dbe) {
-                        XdbeSwapInfo si = { .swap_window = win, .swap_action = XdbeUndefined };
-                        XdbeSwapBuffers(display, &si, 1);
+                        wait_for_vsync(drmfd);
+                        swap_buffers(display, win, dbe);
                     }
                 } else {
                     debX11ev(win, &ev, "");
@@ -1309,6 +1411,8 @@ int main(int argc, char *argv[])
 
 #elif defined(WIN32)
 
+#include <dwmapi.h> // DwmFlush()
+
 #define IDT_TIMER1 0x14001101
 #define IDT_TIMER2 0x14001102
 
@@ -1326,11 +1430,8 @@ HWND gWnd = 0;
 HANDLE gThread = 0;
 static BOOL gModalState = false; // Is messagebox shown
 
-static int debug = 0;
-static int benchmark = 0;
-int method = 1; // 1 - CreateCompatibleBitmap/SetDIBits, 2 - CreateDIBSection, 3 - SetDIBitsToDevice
-int nredraws = 0;
-int start = 20;
+static int method = 1; // 1 - CreateCompatibleBitmap/SetDIBits, 2 - CreateDIBSection, 3 - SetDIBitsToDevice
+static int start = 20;
 
 asm volatile (R"(
     # export to wxasm.cpp
@@ -1347,8 +1448,20 @@ asm volatile (R"(
 
 DWORD WINAPI asm_main_call(void *)
 {
+    if(!SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL)) {
+        MessageBox(NULL, "Can't set thread priority!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    }
+    // Ask MMCSS to temporarily boost the thread priority
+    DWORD taskIndex = 0;
+    HANDLE hTask = AvSetMmThreadCharacteristics(TEXT("Games"), &taskIndex);
+    if (hTask == NULL) {
+        MessageBox(NULL, "Can't set MmThreadCharacteristics!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    } else if (!AvSetMmThreadPriority(hTask, AVRT_PRIORITY_HIGH)) {
+        MessageBox(NULL, "Can't set MmThreadPriority!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+    }
     //asm volatile ("call asm_main" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
     asm_main_text();
+    if (hTask) AvRevertMmThreadCharacteristics(hTask);
     return 0;
 }
 
@@ -1367,7 +1480,7 @@ int usleep(useconds_t usec)
 
 static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
-    static HDC gdcMem;
+    static HDC hdcMem;
     static HBITMAP gBitmap;
     static UINT_PTR gTimer1;
     static RECT rcClient; // client area rectangle
@@ -1556,10 +1669,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             if (method == 1) {
                 pframebuf = &framebuf;
                 HDC hdc = GetDC(hWnd);
-                gdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
+                hdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
                 gBitmap = CreateCompatibleBitmap(hdc, FB_WIDTH, FB_HEIGHT);
                 if (debug) printf("WM_CREATE CreateCompatibleBitmap=%p, pframebuf=%p\n", gBitmap, pframebuf);
-                HGDIOBJ old = SelectObject(gdcMem, gBitmap);
+                HGDIOBJ old = SelectObject(hdcMem, gBitmap);
                 DeleteObject(old); // release the 1x1@1bpp default bitmap
                 ReleaseDC(hWnd, hdc);
 
@@ -1574,7 +1687,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 bmi.bmiHeader.biSizeImage = ((((FB_WIDTH * bmi.bmiHeader.biBitCount) + 31) & ~31) >> 3) * FB_HEIGHT;
 
                 HDC hdc = GetDC(hWnd);
-                gdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
+                hdcMem = CreateCompatibleDC(hdc); // Temp HDC to copy picture
                 gBitmap = CreateDIBSection(
                     hdc,		// hdc A handle to a device context
                     &bmi,		// pbmi	A pointer to a BITMAPINFO structure that specifies various attributes of the DIB
@@ -1585,7 +1698,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                 );
                 if (debug) printf("          CreateDIBSection=%p, pframebuf=%p\n", gBitmap, pframebuf);
                 if (pframebuf) memcpy(pframebuf, &framebuf, sizeof(*pframebuf));
-                HGDIOBJ old = SelectObject(gdcMem, gBitmap);
+                HGDIOBJ old = SelectObject(hdcMem, gBitmap);
                 DeleteObject(old); // release the 1x1@1bpp default bitmap
                 //crBkgnd = GetBkColor(hdc);
                 //hbrBkgnd = CreateSolidBrush(crBkgnd);
@@ -1650,10 +1763,10 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             if (method == 1) {
                 DeleteObject(gBitmap);
-                DeleteDC(gdcMem);
+                DeleteDC(hdcMem);
             } else if (method == 2) {
                 DeleteObject(gBitmap);
-                DeleteDC(gdcMem);
+                DeleteDC(hdcMem);
             } else if (method == 3) {
             }
 
@@ -1688,6 +1801,20 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         }
 
+        case WM_TIMER: {
+            switch (wParam) {
+                case IDT_TIMER1:
+                    if (debug > 1) printf("[%" PRIu64 "] WM_TIMER\n", GetTickCount64());
+                    // process the framebuffer refresh timer (vsync-like)
+                    InvalidateRect(hWnd, NULL, false);
+                    return 0;
+                case IDT_TIMER2:
+                    // process the five-minute timer
+                    return 0;
+            }
+            break;
+        }
+
         case WM_NCPAINT: {
             static int cnt;
             if (debug) printf("WM_NCPAINT %d\n", cnt++);
@@ -1696,21 +1823,85 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         }
 
         case WM_PAINT: {
-            static int cnt;
+            DwmFlush();
+            // IDXGIOutput::WaitForVBlank(); IDXGIFactory2::CreateSwapChainForHwnd() IDXGISwapChain2::GetFrameLatencyWaitableObject() D3DKMTOpenAdapterFromHdc D3DKMTWaitForVerticalBlankEvent
+            /*
+            static double prevtc = 0, prevdt = 0;
+            ULONGLONG tcl; QueryUnbiasedInterruptTime(&tcl);
+            double tc = tcl / 10000.0; // convert 100ns to 1ms
+            double dt = tc - prevtc;
+            if (debug && abs(dt - prevdt) > 3)
+                printf("[%" PRIu64 "] WM_PAINT [%.2f] frame = %.2f ms\n", GetTickCount64(), tc, dt);
+            prevdt = dt;
+            prevtc = tc;
+            */
+            /*
+            DWM_TIMING_INFO ti;
+            typedef struct _DWM_TIMING_INFO {
+              UINT32          cbSize;			The size of this DWM_TIMING_INFO structure.
+              UNSIGNED_RATIO  rateRefresh;              The monitor refresh rate.
+              QPC_TIME        qpcRefreshPeriod;         The monitor refresh period.
+              UNSIGNED_RATIO  rateCompose;              The composition rate.
+              QPC_TIME        qpcVBlank;                The query performance counter value before the vertical blank.
+              DWM_FRAME_COUNT cRefresh;                 The DWM refresh counter.
+              UINT            cDXRefresh;               The DirectX refresh counter.
+              QPC_TIME        qpcCompose;               The query performance counter value for a frame composition.
+              DWM_FRAME_COUNT cFrame;                   The frame number that was composed at qpcCompose.
+              UINT            cDXPresent;               The DirectX present number used to identify rendering frames.
+              DWM_FRAME_COUNT cRefreshFrame;            The refresh count of the frame that was composed at qpcCompose.
+              DWM_FRAME_COUNT cFrameSubmitted;          The DWM frame number that was last submitted.
+              UINT            cDXPresentSubmitted;      The DirectX present number that was last submitted.
+              DWM_FRAME_COUNT cFrameConfirmed;          The DWM frame number that was last confirmed as presented.
+              UINT            cDXPresentConfirmed;      The DirectX present number that was last confirmed as presented.
+              DWM_FRAME_COUNT cRefreshConfirmed;        The target refresh count of the last frame confirmed as completed by the GPU.
+              UINT            cDXRefreshConfirmed;      The DirectX refresh count when the frame was confirmed as presented.
+              DWM_FRAME_COUNT cFramesLate;              The number of frames the DWM presented late.
+              UINT            cFramesOutstanding;       The number of composition frames that have been issued but have not been confirmed as completed.
+              DWM_FRAME_COUNT cFrameDisplayed;          The last frame displayed.
+              QPC_TIME        qpcFrameDisplayed;        The QPC time of the composition pass when the frame was displayed.
+              DWM_FRAME_COUNT cRefreshFrameDisplayed;   The vertical refresh count when the frame should have become visible.
+              DWM_FRAME_COUNT cFrameComplete;           The ID of the last frame marked as completed.
+              QPC_TIME        qpcFrameComplete;         The QPC time when the last frame was marked as completed.
+              DWM_FRAME_COUNT cFramePending;            The ID of the last frame marked as pending.
+              QPC_TIME        qpcFramePending;          The QPC time when the last frame was marked as pending.
+              DWM_FRAME_COUNT cFramesDisplayed;         The number of unique frames displayed. This value is valid only after a second call to the DwmGetCompositionTimingInfo function.
+              DWM_FRAME_COUNT cFramesComplete;          The number of new completed frames that have been received.
+              DWM_FRAME_COUNT cFramesPending;           The number of new frames submitted to DirectX but not yet completed.
+              DWM_FRAME_COUNT cFramesAvailable;         The number of frames available but not displayed, used, or dropped. This value is valid only after a second call to DwmGetCompositionTimingInfo.
+              DWM_FRAME_COUNT cFramesDropped;           The number of rendered frames that were never displayed because composition occurred too late. This value is valid only after a second call to DwmGetCompositionTimingInfo.
+              DWM_FRAME_COUNT cFramesMissed;            The number of times an old frame was composed when a new frame should have been used but was not available.
+              DWM_FRAME_COUNT cRefreshNextDisplayed;    The frame count at which the next frame is scheduled to be displayed.
+              DWM_FRAME_COUNT cRefreshNextPresented;    The frame count at which the next DirectX present is scheduled to be displayed.
+              DWM_FRAME_COUNT cRefreshesDisplayed;      The total number of refreshes that have been displayed for the application since the DwmSetPresentParameters function was last called.
+              DWM_FRAME_COUNT cRefreshesPresented;      The total number of refreshes that have been presented by the application since DwmSetPresentParameters was last called.
+              DWM_FRAME_COUNT cRefreshStarted;          The refresh number when content for this window started to be displayed.
+              ULONGLONG       cPixelsReceived;          The total number of pixels DirectX redirected to the DWM.
+              ULONGLONG       cPixelsDrawn;             The number of pixels drawn.
+              DWM_FRAME_COUNT cBuffersEmpty;            The number of empty buffers in the flip chain.
+            } DWM_TIMING_INFO;
+            ti.cbSize = sizeof(ti);
+            DWMAPI DwmGetCompositionTimingInfo(hWnd, DWM_TIMING_INFO *pTimingInfo);
+            */
 
             //SetWindowHandle(hWnd);
             PAINTSTRUCT ps = {};
             HDC hdc = BeginPaint(hWnd, &ps);
+            /*
+            if (memcmp(&oldframebuf, pframebuf, sizeof(oldframebuf)) != 0) {
+                BitBlt(hdc, 0, 0, FB_WIDTH, FB_HEIGHT, hdcMem, 0, 0, SRCCOPY);
+                memcpy(&oldframebuf, pframebuf, sizeof(oldframebuf));
+            }
+            */
 
             RECT rc = {};
             GetClientRect(hWnd, &rc);
-            if (debug > 1) printf("WM_PAINT %d ps.rcPaint=[%ld,%ld - %ld,%ld] GetClientRect=%ldx%ld\n", cnt++,
-                ps.rcPaint.left, ps.rcPaint.top,
-                ps.rcPaint.right, ps.rcPaint.bottom,
-                rc.right - rc.left,
-                rc.bottom - rc.top
+            static int cnt;
+            if (debug > 1) printf("[%" PRIu64 "] WM_PAINT %d ps.rcPaint=[%ld,%ld - %ld,%ld] GetClientRect=%ldx%ld InSendMessage=%d\n",
+                GetTickCount64(), cnt++, ps.rcPaint.left, ps.rcPaint.top, ps.rcPaint.right, ps.rcPaint.bottom,
+                rc.right - rc.left, rc.bottom - rc.top, InSendMessage()
             );
-            ps.rcPaint = rc;
+                    if (debug > 1) printf("[%" PRIu64 "] WM_TIMER\n", GetTickCount64());
+            //ps.rcPaint = rc;
 
             BITMAPINFO bmi = {};
             bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -1739,7 +1930,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
 
             if (method == 1) {
 
-                int res = SetDIBits(gdcMem, gBitmap, 0, FB_HEIGHT, (void *)pframebuf, &bmi, DIB_RGB_COLORS);
+                int res = SetDIBits(hdcMem, gBitmap, 0, FB_HEIGHT, (void *)pframebuf, &bmi, DIB_RGB_COLORS);
                 if (debug > 1) printf("         SetDIBits=%d\n", res);
 
                 // Copy image from temp HDC to window
@@ -1747,8 +1938,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                     0,      // x and
                     0,      // y - upper-left corner of place, where we'd like to copy
                     FB_WIDTH,    // width of the region
-                    FB_HEIGHT,    // height
-                    gdcMem, // source
+                    FB_HEIGHT,   // height
+                    hdcMem, // source
                     0,      // x and
                     0,      // y of upper left corner  of part of the source, from where we'd like to copy
                     SRCCOPY // Defined DWORD to juct copy pixels. Watch more on msdn;
@@ -1761,8 +1952,8 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
                     0,      // x and
                     0,      // y - upper-left corner of place, where we'd like to copy
                     FB_WIDTH,    // width of the region
-                    FB_HEIGHT,    // height
-                    gdcMem, // source
+                    FB_HEIGHT,   // height
+                    hdcMem, // source
                     0,      // x and
                     0,      // y of upper left corner  of part of the source, from where we'd like to copy
                     SRCCOPY // Defined DWORD to juct copy pixels. Watch more on msdn;
@@ -1790,7 +1981,13 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             }
 
             EndPaint(hWnd, &ps);
+            MSG msgtmp; // drain WM_PAINT messages
+            if (debug > 1) printf("[%" PRIu64 "] WM_PAINT drain\n", GetTickCount64());
+            if (cnt > 3) while (PeekMessage(&msgtmp, NULL, WM_PAINT, WM_PAINT, PM_REMOVE | PM_NOYIELD | PM_QS_PAINT));
+            if (debug > 1) printf("[%" PRIu64 "] WM_PAINT drain end\n", GetTickCount64());
+            getkey_q.put(Key::NextFrame);
             nredraws++;
+            if (debug > 1) printf("[%" PRIu64 "] WM_PAINT end\n", GetTickCount64());
             return 0;
         }
 
@@ -1892,17 +2089,16 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
         case WM_SIZE: {
             static int cnt;
             if (debug) printf("WM_MOVE|WM_SIZE %d is_moving=%d\n", cnt++, is_moving);
-            GetClientRect(hWnd, &rcClient);
-            RECT rect = rcClient;
-            if (debug) printf("WM_MOVE|WM_SIZE wParam=%d rcClient=[%ld,%ld - %ld,%ld]\n", wParam, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
-            POINT ptClientUL;        // client area upper left corner
-            ptClientUL.x = rcClient.left; ptClientUL.y = rcClient.top;
+            if (debug) printf("WM_MOVE|WM_SIZE wParam=%d rcClient was [%ld,%ld - %ld,%ld]\n", wParam, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+
+            RECT rect;
+            GetClientRect(hWnd, &rect);
+            POINT ptClientUL = { rect.left, rect.top };
             ClientToScreen(hWnd, &ptClientUL);
-            POINT ptClientLR;        // client area lower right corner
-            ptClientLR.x = rcClient.right; ptClientLR.y = rcClient.bottom;
+            POINT ptClientLR = { rect.right, rect.bottom };
             ClientToScreen(hWnd, &ptClientLR);
-            SetRect(&rcClient, ptClientUL.x, ptClientUL.y, ptClientLR.x, ptClientLR.y);
-            if (debug) printf("                wParam=%d rcClient=[%ld,%ld - %ld,%ld]\n", wParam, rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
+            rcClient = { ptClientUL.x, ptClientUL.y, ptClientLR.x, ptClientLR.y };
+            if (debug) printf("                rcClient=[%ld,%ld - %ld,%ld]\n", rcClient.left, rcClient.top, rcClient.right, rcClient.bottom);
 
             if (is_moving) SendMessage(hWnd, WM_SETREDRAW, true, 0);
             RedrawWindow(hWnd, &rect, NULL, RDW_NOERASE | RDW_NOFRAME | RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOCHILDREN);
@@ -2075,19 +2271,6 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             break;
         }
 
-        case WM_TIMER: {
-            switch (wParam) {
-                case IDT_TIMER1:
-                    // process the framebuffer refresh timer (vsync-like)
-                    InvalidateRect(hWnd, NULL, false);
-                    return 0;
-                case IDT_TIMER2:
-                    // process the five-minute timer
-                    return 0;
-            }
-            break;
-        }
-
         case WM_COMMAND: {
             if (debug) printf("WM_COMMAND\n");
             if (gModalState)
@@ -2155,12 +2338,12 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 
     {
         void *h_mapping = CreateFileMapping(
-            INVALID_HANDLE_VALUE,	// not bound to actual file
-            NULL,			// default security
+            INVALID_HANDLE_VALUE,		// not bound to actual file
+            NULL,				// default security
             PAGE_EXECUTE_READWRITE | SEC_COMMIT,// access flags
-            0,				// dwMaximumSizeHigh
-            4096,			// dwMaximumSizeLow
-            NULL			// no name
+            0,					// dwMaximumSizeHigh
+            4096,				// dwMaximumSizeLow
+            NULL				// no name
         );
         if (h_mapping == NULL) {
             char *msg;
@@ -2250,17 +2433,17 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
 
     HWND hWnd = gWnd = CreateWindowEx(
         dwExStyle,		// Extended possibilites for variation
-        TEXT(THIS_CLASSNAME), // Classname
+        TEXT(THIS_CLASSNAME),	// Classname
         TEXT(THIS_TITLE),	// Title Text
         dwStyle,		// default window
-        CW_USEDEFAULT,      // Windows decides the position
-        CW_USEDEFAULT,      // Where the window ends up on the screen
+        CW_USEDEFAULT,		// Windows decides the position
+        CW_USEDEFAULT,		// Where the window ends up on the screen
         clientarea.right - clientarea.left, // width and
         clientarea.bottom - clientarea.top, // height in pixels
-        HWND_DESKTOP,       // The window is a child-window to desktop
-        NULL,               // No menu
-        hInstance,          // Program Instance handler
-        NULL                // No Window Creation data
+        HWND_DESKTOP,		// The window is a child-window to desktop
+        NULL,			// No menu
+        hInstance,		// Program Instance handler
+        NULL			// No Window Creation data
     );
 
     if (!hWnd) {
@@ -2281,6 +2464,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
     // The UpdateWindow function updates the client area of the specified window by sending a WM_PAINT message to the window if the window's update region is not empty. The function sends a WM_PAINT message directly to the window procedure of the specified window, bypassing the application queue. If the update region is empty, no message is sent.
     UpdateWindow(hWnd);
 
+    if (!SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS)) {
+        MessageBox(NULL, "Can't set priority class!", TEXT("Warning!"), MB_ICONERROR | MB_OK | MB_TOPMOST);
+        return 1;
+    }
     // BOOL InvalidateRect(HWND hWnd, const RECT *lpRect, BOOL bErase);
     // Adds a rectangle to the specified window's update region
     // 	hWnd - A handle to the window whose update region has changed. If this parameter is NULL, the system invalidates and redraws all windows, not just the windows for this application, and sends the WM_ERASEBKGND and WM_NCPAINT messages before the function returns. Setting this parameter to NULL is not recommended.
