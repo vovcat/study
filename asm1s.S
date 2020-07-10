@@ -69,7 +69,7 @@ pic:
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
     .int 0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00,0xffffff00
 star:
-    .incbin "star.bmp", 54, 32*32*3
+    .incbin "star.bmp", 54, 32 * 32 * 3
 
 dot:   .string "dot=xxxxxxxx"
 hex:   .string "0123456789abcdef"
@@ -80,6 +80,46 @@ s1:    .string "0123456789012345678901234567890123456789012345678901234567890123
 asm_main:
     call srand
 
+    mov eax, 2
+    mov ebx, 2
+    mov ecx, 0xffffff
+    mov edx, 1
+    call PutCircle
+    mov eax, 5
+    mov ebx, 5
+    mov ecx, 0xffffff
+    mov edx, 2
+    call PutCircle
+    mov eax, 10
+    mov ebx, 10
+    mov ecx, 0xffffff
+    mov edx, 3
+    call PutCircle
+    mov eax, 17
+    mov ebx, 17
+    mov ecx, 0xffffff
+    mov edx, 4
+    call PutCircle
+    mov eax, 25
+    mov ebx, 25
+    mov ecx, 0xffffff
+    mov edx, 5
+    call PutCircle
+    mov eax, 35
+    mov ebx, 35
+    mov ecx, 0xffffff
+    mov edx, 6
+    call PutCircle
+    mov eax, 46
+    mov ebx, 46
+    mov ecx, 0xffffff
+    mov edx, 7
+    call PutCircle
+    mov eax, 60
+    mov ebx, 60
+    mov ecx, 0xffffff
+    mov edx, 8
+    call PutCircle
 /*
     # 260,400
     mov eax, 400
@@ -260,7 +300,7 @@ next:
 
     // MouseMove
     mov eax, offset obj_list
-    mov ebx, offset popaDOS
+    mov ebx, offset obj_move_from_mouse
     call list_walk
     jmp next
 
@@ -276,42 +316,39 @@ next:
 1:  // nothing of the above
     jmp next
 
-popaDOS:
-    pusha
+obj_move_from_mouse:
 1:  push eax
     mov ebx, [mouse.x]
     mov ecx, [mouse.y]
-    call [eax + object.testxy]     # object->testxy(mouse.x, mouse.y)
+    call [eax + object.testxy]	# object->testxy(mouse.x, mouse.y)
     test eax, eax
     pop eax
     jz 1f
     push eax
     push ebx
     push ecx
+    // change color
+    xchg eax, edx
+    call rand
+    xchg eax, edx
+    mov [eax + str.color], edx
+    // redraw
     mov ebx, 0
     mov ecx, 0
-    push eax
-    call rand
-    mov edx, eax
-    pop eax
-    mov [eax + str.color], edx
-    call [eax + object.move]     # object->move(3, 3)
+    call [eax + object.move]	# object->move(0, 0)
     pop ecx
     pop ebx
     pop eax
     #jmp 1b
-1:  popa
-    ret
+1:  ret
 
 //
 // ALLOC
 //
 
 .section .bss
-Heap:
-    .space 2048 * 1024, 0
+Heap:    .space 2048 * 1024, 0
 Heap_end:
-
 .section "data1"
 
 Heap_pos:
@@ -383,21 +420,25 @@ srand:
 // int rand(void)
 
 rand:
+    push edx
     mov eax, 973656667
     mul dword ptr [seed] # edx:eax
     add eax, 223939
     shrd eax, edx, 9
     mov [seed], eax
+    pop edx
     ret
 
 // int rand_good(void)
 
 rand_good:
+    push edx
     mov eax, 0x01010101
     mul dword ptr [seed] # edx:eax
     add eax, 0x31415926
     shrd eax, edx, 6
     mov [seed], eax
+    pop edx
     ret
 
 //
@@ -500,25 +541,25 @@ animate_obj:
 
     .align 8
 star1:
-    /*next*/ .int 0
-    /*type*/ .int type.star
-             .int 0
-             .int 0
-    /*  x */ .int 0
-    /*  y */ .int 500
-    /* vx */ .int 8
-    /* vy */ .int 6
+    /*next*/   .int 0
+    /*type*/   .int type.star
+    /*testxy*/ .int 0
+    /*move*/   .int 0
+    /*  x */   .int 0
+    /*  y */   .int 500
+    /* vx */   .int 8
+    /* vy */   .int 6
 
     .align 8
 star2:
-    /*next*/ .int 0
-    /*type*/ .int type.star
-             .int 0
-             .int 0
-    /*  x */ .int 100
-    /*  y */ .int 100
-    /* vx */ .int 1
-    /* vy */ .int 1
+    /*next*/   .int 0
+    /*type*/   .int type.star
+    /*testxy*/ .int 0
+    /*move*/   .int 0
+    /*  x */   .int 100
+    /*  y */   .int 100
+    /* vx */   .int 1
+    /* vy */   .int 1
 
 // function animate_star(star *s (eax));
 
@@ -576,7 +617,6 @@ PutStarC:
 // void PutStar(int (eax) x, (ebx) y)
 
 PutStar:
-    pusha
     imul edi, ebx, 800
     add edi, eax
     shl edi, 2
@@ -601,7 +641,6 @@ PutStar:
     pop ecx
     add edi, (800 - 32) * 4
     loop 1b
-    popa
     ret
 
 // void Clear32x32C(int x, y, color)
@@ -646,8 +685,10 @@ Clear32x32:
 
     .align 8
 Circle1:
-    /*next*/     .int 0
-    /*type*/     .int type.circle
+    /* next */   .int 0
+    /* type */   .int type.circle
+    /* testxy */ .int 0
+    /* move */   .int 0
     /* x */      .int 90
     /* y */      .int 400
     /* vx */     .int 8
@@ -657,8 +698,10 @@ Circle1:
 
     .align 8
 Circle2:
-    /*next*/     .int 0
-    /*type*/     .int type.circle
+    /* next */   .int 0
+    /* type */   .int type.circle
+    /* testxy */ .int 0
+    /* move */   .int 0
     /* x */      .int 140
     /* y */      .int 340
     /* vx */     .int 3
@@ -715,17 +758,14 @@ circle_create:
 
 circle_animate:
     mov esi, eax
-
+    // add gravity (increment vy)
     mov eax, [esi + circle.vy]
     inc eax
     mov ebx, 4000
     cmp eax, ebx
     cmovg eax, ebx
-    mov ebx, -4000
-    cmp eax, ebx
-    cmovl eax, ebx
     mov [esi + circle.vy], eax
-
+    // sanitize coordinates before clearing
     mov eax, [esi + circle.x]
     mov ebx, [esi + circle.y]
     mov edx, [esi + circle.radius]
@@ -741,11 +781,11 @@ circle_animate:
     sub ecx, edx
     cmp ebx, ecx
     jg 1f
-    pusha
-    xor ecx, ecx
-    call PutCircle
-    popa
-1:
+    push esi
+    xor ecx, ecx	# black
+    call PutCircle	# clear
+    pop esi
+1:  // add vx, check for bounds
     mov eax, [esi + circle.x]
     add eax, [esi + circle.vx]
     mov edi, 800
@@ -759,7 +799,7 @@ circle_animate:
     neg dword ptr [esi + circle.vx]
     mov eax, [esi + circle.radius]
 1:  mov [esi + circle.x], eax
-
+    // add vy, check for bounds
     mov ebx, [esi + circle.y]
     add ebx, [esi + circle.vy]
     mov edi, 600
@@ -773,8 +813,9 @@ circle_animate:
     neg dword ptr [esi + circle.vy]
     mov ebx, [esi + circle.radius]
 1:  mov [esi + circle.y], ebx
-
+    // draw new
     mov ecx, [esi + circle.colour]
+    mov edx, [esi + circle.radius]
     call PutCircle
     ret
 
@@ -788,63 +829,68 @@ circle_testxy:
     add ebx, ecx
     mov ecx, [eax + circle.radius]
     imul ecx, ecx
+    xor eax, eax
     cmp ebx, ecx
-    jg 1f
-    mov eax, 1
-    jmp 2f
-1:  xor eax, eax
-2:  ret
+    setle al
+    ret
 
 // void circle_move(circle *eax, int (ebx) dx, int (ecx) dy)
 
 circle_move:
+    push ecx		# dy
+    push ebx		# dx
+    // dx = [esp], dy = [esp + 4]
     mov esi, eax
-    pusha
-    mov eax, [esi + circle.x]
-    mov ebx, [esi + circle.y]
     mov edx, [esi + circle.radius]
+    // sanitize coordinates before clearing
+    mov eax, [esi + circle.x]
     cmp eax, edx
     jl 1f
     mov ecx, 800
     sub ecx, edx
     cmp eax, ecx
     jg 1f
+    mov ebx, [esi + circle.y]
     cmp ebx, edx
     jl 1f
     mov ecx, 600
     sub ecx, edx
     cmp ebx, ecx
     jg 1f
-    xor ecx, ecx
-    call PutCircle
-1:  popa
+    push esi
+    xor ecx, ecx	# black
+    call PutCircle	# clear
+    pop esi
+1:  mov edx, [esi + circle.radius]
+    // add vx, check for bounds
     mov eax, [esi + circle.x]
-    add eax, ebx # dx
-    mov edi, 800
-    sub edi, [esi + circle.radius]
-    cmp eax, edi
+    add eax, [esp]	# dx
+    mov ecx, 800
+    sub ecx, edx	# circle.radius
+    cmp eax, ecx
     jle 1f
-    mov eax, edi
-1:  cmp eax, [esi + circle.radius]
-    jg 1f
-    mov eax, [esi + circle.radius]
+    mov eax, ecx
+1:  cmp eax, edx	# circle.radius
+    jge 1f
+    mov eax, edx	# circle.radius
 1:  mov [esi + circle.x], eax
-
+    // add vy, check for bounds
     mov ebx, [esi + circle.y]
-    add ebx, ecx # dy
-    mov edi, 600
-    sub edi, [esi + circle.radius]
-    cmp ebx, edi
+    add ebx, [esp + 4]	# dy
+    mov ecx, 600
+    sub ecx, edx	# circle.radius
+    cmp ebx, ecx
     jle 1f
-    mov ebx, edi
-1:  cmp ebx, [esi + circle.radius]
-    jg 1f
-    mov ebx, [esi + circle.radius]
+    mov ebx, ecx
+1:  cmp ebx, edx	# circle.radius
+    jge 1f
+    mov ebx, edx	# circle.radius
 1:  mov [esi + circle.y], ebx
-
+    // draw new
     mov ecx, [esi + circle.colour]
-    mov edx, [esi + circle.radius]
     call PutCircle
+    pop ebx
+    pop ecx
     ret
 
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
@@ -855,10 +901,10 @@ PutCircleC:
     push ebx
     push esi
     push edi
-    mov eax, [esp + 16]
-    mov ebx, [esp + 20]
-    mov ecx, [esp + 24]
-    mov edx, [esp + 28]
+    mov eax, [esp + 16] # xc
+    mov ebx, [esp + 20] # yc
+    mov ecx, [esp + 24] # colour
+    mov edx, [esp + 28] # radius
     call PutCircle
     pop edi
     pop esi
@@ -943,102 +989,6 @@ PutCircle:
     pop ebp
     ret
 
-    .global _PutCircleC2
-_PutCircleC2:
-PutCircleC2:
-    push ebx
-    push esi
-    push edi
-    mov eax, [esp + 16]
-    mov ebx, [esp + 20]
-    mov ecx, [esp + 24]
-    mov edx, [esp + 28]
-    call PutCircle2
-    pop edi
-    pop esi
-    pop ebx
-    ret
-PutCircle2:
-    push ebp
-    mov ebp, esp
-
-    push edx
-    push ecx
-    push ebx
-    push eax
-    sub esp, 8
-
-    ebp.ptop = -24; ebp.pbot = -20
-    ebp.xc = -16; ebp.yc = -12
-    ebp.colour = -8; ebp.radius = -4
-
-    /*
-    edx = r*r;
-    ptop = pbot = &pframebuf[yc][xc];
-    for (yi = 0; yi < r; yi++):		// ebx
-           xi = 0;			// eax
-           ecx = yi*yi;
-           do xi++ while (xi < r && xi*xi + ecx < edx);
-           ecx = xi * 2 - 1;
-           PutLine(ptop - xi*4, ecx, colour);
-           PutLine(pbot - xi*4, ecx, colour);
-       ptop -= 800*4;
-       pbot += 800*4;
-    */
-
-    imul edx, edx		# edx = r^2
-    imul edi, ebx, 800		# edi = &pframebuf[yc][xc]
-    add edi, eax
-    shl edi, 2
-    add edi, [pframebuf]
-    mov [ebp + ebp.ptop], edi	# ptop = edi
-    mov [ebp + ebp.pbot], edi	# pbot = edi
-
-    xor ebx, ebx
-1:  xor eax, eax		# xi = 0
-    mov ecx, ebx
-    imul ecx, ebx		# ecx = yi^2
-    mov edi, [ebp + ebp.radius]	# edi = r
-2:  inc eax			# xi++
-    cmp eax, edi
-    jge 3f
-    mov esi, eax		# eax: xi, ebx: yi, ecx:yi^2, edx:r^2, esi:-, edi:-
-    imul esi, eax		# esi = xi^2
-    add esi, ecx		# esi = xi^2 + yi^2
-    cmp esi, edx
-    jl 2b
-3:  shl eax, 1			# eax = xi * 2
-    mov ecx, eax		# ecx = xi * 2
-    dec ecx			# ecx = xi * 2 - 1
-    shl eax, 1			# eax = xi * 4
-
-    # @now: eax:xi*4, ebx:yi, ecx:xi*2-1, edx:r^2, esi:-, edi:-
-    # @stosd: stack:xi*4, eax:COLOUR, ebx:yi, ecx:xi*2-1, edx:r^2, esi:SAVECX, edi:PTR
-
-    mov esi, ecx		# save ecx
-    push eax
-    mov edi, [ebp + ebp.ptop]
-    sub edi, eax		# edi = ptop - xi*4
-    mov eax, [ebp + ebp.colour]
-    rep stosd es:[edi], eax	# PutLine(ptop - xi*4, ecx, colour)
-
-    mov ecx, esi		# restore ecx
-    pop esi
-    mov edi, [ebp + ebp.pbot]
-    sub edi, esi		# edi = pbot - xi*4
-    rep stosd es:[edi], eax	# PutLine(pbot - xi*4, ecx, colour)
-
-    sub dword ptr [ebp + ebp.ptop], 800*4	# ptop -= 800*4
-    add dword ptr [ebp + ebp.pbot], 800*4	# pbot += 800*4
-
-    inc ebx
-    cmp ebx, [ebp + ebp.radius]
-    jl 1b
-
-    mov esp, ebp
-    pop ebp
-    ret
-
 // void PutPix(int (eax) x, (ebx) y, (ecx) colour)
 
 PutPix:
@@ -1102,29 +1052,33 @@ aiur:  .string "My life for Aiur!"
 
     .align 8
 str1:
-    /*next*/ .int 0
-    /*type*/ .int type.str
-    /*x  */  .int 130
-    /*y  */  .int 130
-    /*vx */  .int 4
-    /*vy */  .int 6
-    /*col*/  .int 0xff55aaff
-    /*str*/  .int aiur
-    /*len*/  .int 17
+    /* next */   .int 0
+    /* type */   .int type.str
+    /* testxy */ .int 0
+    /* move */   .int 0
+    /* x */      .int 130
+    /* y */      .int 130
+    /* vx */     .int 4
+    /* vy */     .int 6
+    /* color */  .int 0xff55aaff
+    /* string */ .int aiur
+    /* len */    .int 17
 
 hello: .string "Hello there!"
 
     .align 8
 str2:
-    /*next*/ .int 0
-    /*type*/ .int type.str
-    /*x  */  .int 555
-    /*y  */  .int 444
-    /*vx */  .int 2
-    /*vy */  .int 2
-    /*col*/  .int 0xff00ff00
-    /*str*/  .int hello
-    /*len*/  .int 12
+    /* next */   .int 0
+    /* type */   .int type.str
+    /* testxy */ .int 0
+    /* move */   .int 0
+    /* x */      .int 555
+    /* y */      .int 444
+    /* vx */     .int 2
+    /* vy */     .int 2
+    /* color */  .int 0xff00ff00
+    /* string */ .int hello
+    /* len */    .int 12
 
 // str *create_string(void)
 
@@ -1180,10 +1134,11 @@ string_create:
 
 str_animate:
     mov esi, eax
+    // sanitize coordinates before clearing
     mov eax, [esi + str.x]
     mov ebx, [esi + str.y]
     mov edx, [esi + str.len]
-    imul edx, edx, letter.width
+    shl edx, 3		# imul edx, edx, letter.width
     mov ecx, 800
     sub ecx, edx
     cmp eax, ecx
@@ -1191,16 +1146,14 @@ str_animate:
     mov ecx, 600 - letter.height
     cmp ebx, ecx
     jg 1f
+    push esi
+    xor ecx, ecx	# black
     mov edx, [esi + str.string]
-    pusha
-    xor ecx, ecx
-    call PutStr
-    popa
-1:
-    mov edx, [esi + str.string]
+    call PutStr		# clear
+    pop esi
+1:  // add vx, check for bounds
     mov edi, [esi + str.len]
-    shl edi, 3
-
+    shl edi, 3		# imul edi, edi, letter.width
     mov eax, [esi + str.x]
     add eax, [esi + str.vx]
     add eax, edi
@@ -1209,12 +1162,11 @@ str_animate:
     neg dword ptr [esi + str.vx]
     mov eax, 800
 1:  sub eax, edi
-    cmp eax, 0
     jg 1f
     neg dword ptr [esi + str.vx]
-    mov eax, 0
+    xor eax, eax
 1:  mov [esi + str.x], eax
-
+    // add vy, check for bounds
     mov ebx, [esi + str.y]
     add ebx, [esi + str.vy]
     add ebx, letter.height
@@ -1223,13 +1175,13 @@ str_animate:
     neg dword ptr [esi + str.vy]
     mov ebx, 600
 1:  sub ebx, letter.height
-    cmp ebx, 0
     jg 1f
     neg dword ptr [esi + str.vy]
-    mov ebx, 0
+    xor ebx, ebx
 1:  mov [esi + str.y], ebx
-
+    // draw new
     mov ecx, [esi + str.color]
+    mov edx, [esi + str.string]
     call PutStr
     ret
 
@@ -1256,54 +1208,58 @@ str_testxy:
 // void str_move (str *eax, int (ebx) dx, int (ecx) dy)
 
 str_move:
+    push ecx		# dy
+    push ebx		# dx
+    // dx = [esp], dy = [esp + 4]
     mov esi, eax
-    pusha
+    // sanitize coordinates before clearing
     mov eax, [esi + str.x]
-    mov ebx, [esi + str.y]
     mov edx, [esi + str.len]
-    imul edx, edx, letter.width
+    shl edx, 3		# imul edx, edx, letter.width
     mov ecx, 800
     sub ecx, edx
     cmp eax, ecx
     jg 1f
+    mov ebx, [esi + str.y]
     mov ecx, 600 - letter.height
     cmp ebx, ecx
     jg 1f
+    push esi
+    xor ecx, ecx	# black
     mov edx, [esi + str.string]
-    xor ecx, ecx
-    call PutStr
-1:  popa
-
-    mov edx, [esi + str.string]
-    mov edi, [esi + str.len]
-    shl edi, 3
-
+    call PutStr		# clear
+    pop esi
+1:
+    // add dx, check for bounds
     mov eax, [esi + str.x]
-    add eax, ebx
-    add eax, edi
+    add eax, [esp]	# dx
+    mov ecx, [esi + str.len]
+    shl ecx, 3		# imul ecx, ecx, letter.width
+    add eax, ecx
     cmp eax, 800
     jl 1f
     mov eax, 800
-1:  sub eax, edi
-    cmp eax, 0
+1:  sub eax, ecx
     jg 1f
-    mov eax, 0
+    xor eax, eax
 1:  mov [esi + str.x], eax
-
+    // add dy, check for bounds
     mov ebx, [esi + str.y]
-    add ebx, ecx
+    add ebx, [esp + 4]	# dy
     add ebx, letter.height
     cmp ebx, 600
     jl 1f
     mov ebx, 600
 1:  sub ebx, letter.height
-    cmp ebx, 0
     jg 1f
-    mov ebx, 0
+    xor ebx, ebx
 1:  mov [esi + str.y], ebx
-
+    // draw new
     mov ecx, [esi + str.color]
+    mov edx, [esi + str.string]
     call PutStr
+    pop ebx
+    pop ecx
     ret
 
 // int str_len(char* (edi) str)
