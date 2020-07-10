@@ -42,14 +42,22 @@ vars =	$(foreach v, $(filter-out .VARIABLES vars, $(.VARIABLES)),	\
 		)							\
 	)
 
-MNT=/mnt/win/deti/d
-DIR=$(MNT)/vmproj/asm1
+MNTd=/mnt/win/deti/d
+MNTs=/mnt/win/fs/d
+DIR=vmproj/asm1
 
-get:
-	sudo mount $(MNT)
-	cd "$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
-	sudo umount $(MNT)
 put:
-	sudo mount $(MNT)
-	cp -p -t "$(DIR)" $(SRC)
-	sudo umount $(MNT)
+	mount $(MNTd)
+	-cp -p -t "$(MNTd)/$(DIR)" $(SRC)
+	umount $(MNTd)
+	mount $(MNTs)
+	-cp -p -t "$(MNTs)/$(DIR)" $(SRC)
+	umount $(MNTs)
+getd:
+	mount $(MNTd)
+	-cd "$(MNTd)/$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
+	umount $(MNTd)
+gets:
+	mount $(MNTs)
+	-cd "$(MNTs)/$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
+	umount $(MNTs)
