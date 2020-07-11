@@ -1,6 +1,8 @@
 .intel_syntax noprefix
 .section data1, "awx"
 
+NULL = 0
+
 object.next = 0
 object.type = 4
 object.testxy = 8
@@ -300,9 +302,12 @@ next:
 
     // MouseMove
     mov eax, offset obj_list
-    mov ebx, offset obj_move_from_mouse
-    call list_walk
-    jmp next
+    mov ebx, offset testxy_p
+    call list_findlast
+    cmp eax, NULL
+    jz 2f
+    call obj_move_from_mouse
+2:  jmp next
 
 1:  cmp ebx, 0x1ff # NextFrame
     jne 1f
@@ -316,15 +321,14 @@ next:
 1:  // nothing of the above
     jmp next
 
-obj_move_from_mouse:
-1:  push eax
+testxy_p:
     mov ebx, [mouse.x]
     mov ecx, [mouse.y]
     call [eax + object.testxy]	# object->testxy(mouse.x, mouse.y)
-    test eax, eax
-    pop eax
-    jz 1f
-    push eax
+    ret
+
+obj_move_from_mouse:
+1:  push eax
     push ebx
     push ecx
     // change color
@@ -400,6 +404,30 @@ list_walk:
     pop ebx
     pop eax
     jmp 1b
+2:  ret
+
+// scr_obj *list_findlast(scr_obj *list, bool (*P)(scr_obj *p))
+// eax - list, ebx - P(scr_obj *p)
+list_findlast:
+    mov eax, [eax]
+    cmp eax, NULL
+    jz 2f
+    push eax
+    call list_findlast
+    cmp eax, NULL
+    jnz 1f
+    pop eax
+
+    push eax
+    push ebx
+    call ebx
+    pop ebx
+    cmp eax, NULL
+    pop eax
+    jnz 2f
+    xor eax, eax
+    jmp 2f
+1:  add esp, 4
 2:  ret
 
 //
