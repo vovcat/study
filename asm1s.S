@@ -1,11 +1,14 @@
 .intel_syntax noprefix
 .section data1, "awx"
 
+null = 0
+
 object.next = 0
 object.type = 4
 object.testxy = 8
 object.move = 12
-object.end = 16
+object.animate = 16
+object.end = 20
 
 type.star = 1
 star.x = object.end
@@ -281,7 +284,7 @@ next:
     // MouseLeft
     call circle_create
     mov ebx, eax
-    mov eax, offset obj_list
+    mov eax, offset screen_list
     call list_add
     jmp next
 
@@ -291,7 +294,7 @@ next:
     // MouseRight
     call string_create
     mov ebx, eax
-    mov eax, offset obj_list
+    mov eax, offset screen_list
     call list_add
     jmp next
 
@@ -299,10 +302,13 @@ next:
     jne 1f
 
     // MouseMove
-    mov eax, offset obj_list
-    mov ebx, offset obj_move_from_mouse
-    call list_walk
-    jmp next
+    mov eax, offset screen_list
+    mov ebx, offset mouse_pos_tester
+    call list_findlast
+    cmp eax, null
+    jz 2f
+    call obj_move_from_mouse
+2:  jmp next
 
 1:  cmp ebx, 0x1ff # NextFrame
     jne 1f
@@ -315,6 +321,12 @@ next:
 
 1:  // nothing of the above
     jmp next
+
+mouse_pos_tester:
+    mov ebx, [mouse.x]
+    mov ecx, [mouse.y]
+    call [eax + object.testxy]
+    ret
 
 obj_move_from_mouse:
 1:  push eax
@@ -376,7 +388,7 @@ free:
 //
 
     .align 8
-obj_list:
+screen_list:
     /*list_ptr*/ .int 0
 
 list_add:
@@ -401,6 +413,27 @@ list_walk:
     pop eax
     jmp 1b
 2:  ret
+
+list_findlast:
+    mov eax, [eax]
+    mov esi, eax
+    cmp esi, null
+    jz 1f
+    push esi
+    call list_findlast
+    pop esi
+    cmp eax, null
+    jnz 1f
+    mov eax, esi
+    push esi
+    push ebx
+    call ebx
+    pop ebx
+    pop esi
+    cmp eax, null
+    jz 1f
+    mov eax, esi
+1:  ret
 
 //
 // LCG PRNG - Linear Congruential Generator as Pseudo-Random Number Generator
@@ -488,7 +521,7 @@ animate:
     loop 1b
 */
 
-    mov eax, offset obj_list
+    mov eax, offset screen_list
     mov ebx, offset animate_obj
     call list_walk
 
@@ -505,34 +538,7 @@ animate:
 //
 
 animate_obj:
-    mov ebx, [eax + object.type]
-    cmp ebx, 0
-    jz 4f
-
-    cmp ebx, type.circle
-    jne 2f
-
-    // type.circle
-    push eax
-    push ebx
-    call circle_animate
-    pop ebx
-    pop eax
-    jmp 4f
-
-2:  cmp ebx, type.str
-    jne 3f
-
-    // type.str
-    push eax
-    push ebx
-    call str_animate
-    pop ebx
-    pop eax
-    jmp 4f
-
-3:  // type.???
-4:  // zero type
+    call [eax + object.animate]
     ret
 
 //
@@ -541,25 +547,27 @@ animate_obj:
 
     .align 8
 star1:
-    /*next*/   .int 0
-    /*type*/   .int type.star
-    /*testxy*/ .int 0
-    /*move*/   .int 0
-    /*  x */   .int 0
-    /*  y */   .int 500
-    /* vx */   .int 8
-    /* vy */   .int 6
+    /*next*/    .int 0
+    /*type*/    .int type.star
+    /*testxy*/  .int 0
+    /*move*/    .int 0
+    /*animate*/ .int 0
+    /*  x */    .int 0
+    /*  y */    .int 500
+    /* vy */    .int 6
+    /* vx */    .int 8
 
     .align 8
 star2:
-    /*next*/   .int 0
-    /*type*/   .int type.star
-    /*testxy*/ .int 0
-    /*move*/   .int 0
-    /*  x */   .int 100
-    /*  y */   .int 100
-    /* vx */   .int 1
-    /* vy */   .int 1
+    /*next*/    .int 0
+    /*type*/    .int type.star
+    /*testxy*/  .int 0
+    /*move*/    .int 0
+    /*animate*/ .int 0
+    /*  x */    .int 100
+    /*  y */    .int 100
+    /* vx */    .int 1
+    /* vy */    .int 1
 
 // function animate_star(star *s (eax));
 
@@ -689,6 +697,7 @@ Circle1:
     /* type */   .int type.circle
     /* testxy */ .int 0
     /* move */   .int 0
+    /*animate*/  .int 0
     /* x */      .int 90
     /* y */      .int 400
     /* vx */     .int 8
@@ -702,6 +711,7 @@ Circle2:
     /* type */   .int type.circle
     /* testxy */ .int 0
     /* move */   .int 0
+    /*animate*/  .int 0
     /* x */      .int 140
     /* y */      .int 340
     /* vx */     .int 3
@@ -723,6 +733,7 @@ circle_create:
     mov dword ptr [esi + object.type], type.circle
     mov dword ptr [esi + object.testxy], offset circle_testxy
     mov dword ptr [esi + object.move], offset circle_move
+    mov dword ptr [esi + object.animate], offset circle_animate
 
     mov [esi + circle.x], eax               #x
     mov [esi + circle.y], ebx               #y
@@ -1056,6 +1067,7 @@ str1:
     /* type */   .int type.str
     /* testxy */ .int 0
     /* move */   .int 0
+    /*animate*/  .int 0
     /* x */      .int 130
     /* y */      .int 130
     /* vx */     .int 4
@@ -1072,6 +1084,7 @@ str2:
     /* type */   .int type.str
     /* testxy */ .int 0
     /* move */   .int 0
+    /*animate*/  .int 0
     /* x */      .int 555
     /* y */      .int 444
     /* vx */     .int 2
@@ -1094,6 +1107,7 @@ string_create:
     mov dword ptr [esi + object.type], type.str
     mov dword ptr [esi + object.testxy], offset str_testxy
     mov dword ptr [esi + object.move], offset str_move
+    mov dword ptr [esi + object.animate], offset str_animate
 
     mov [esi + str.x], eax                              #x
     mov [esi + str.y], ebx                              #y
