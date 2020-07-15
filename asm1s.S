@@ -1278,7 +1278,7 @@ str_move:
     pop ecx
     ret
 
-// int str_len(char* (edi) str)
+// int str_len(const char* (edi) str)
 
 str_len:
     push ecx
@@ -1337,9 +1337,10 @@ PutChar:
     pop ebp
     ret
 
-// void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
+// void PutStr(int (eax) x, (ebx) y, (ecx) color, const char* (edx) str)
 
     .global _PutStrC
+    .global PutStrC
 _PutStrC:
 PutStrC:
     push ebx

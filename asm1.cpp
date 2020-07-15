@@ -1,5 +1,4 @@
 #include <stdio.h>  // printf()
-//#include <stdlib.h> // malloc()
 #include <string.h> // strlen()
 
 struct Key {
@@ -125,17 +124,23 @@ struct circle : screen_obj {
 };
 
 struct str : screen_obj {
+    const int char_width = 8;
+    const int char_height = 13;
     int x, y, vx, vy, colour;
-    char *s;
+    const char *str;
     int len;
+    virtual void animate();
+    virtual void move(int dx, int dy);
 };
 
 struct list {
     screen_obj *first;
+
     void insert(screen_obj *p){
         p->next = first;
         first = p;
     }
+
     void walk(void (*f)(screen_obj *p))
     {
         screen_obj *p = first;
@@ -206,6 +211,68 @@ void circle::move(int dx, int dy)
     PutCircleC(x, y, colour, radius);
 }
 
+str *string_create()
+{
+    str *ps = new str();
+
+    if (rand() & 1) {
+        ps->str = "Hello";
+    } else {
+        ps->str = "My life for nagetsi!";
+    }
+
+    ps->len = strlen(ps->str);
+    printf("%d\n", ps->len);
+
+    ps->x = rand() % 800;
+    ps->y = rand() % 600;
+    ps->vx = rand() % 30 - 10;
+    ps->vy = rand() % 30 - 10;
+    ps->colour = rand();
+
+    ps->move(0, 0);
+    return ps;
+}
+
+void str::animate()
+{
+    PutStrC(x, y, 0, str);
+    move (vx, vy);
+    if (x + len * char_width == 800 - 1) {
+        vx = -vx;
+    }
+    if (x == 0) {
+        vx = -vx;
+    }
+
+    if (y + char_height == 600 - 1) {
+        vy = -vy;
+    }
+    if (y == 0) {
+        vy = -vy;
+    }
+}
+
+void str::move(int dx, int dy)
+{
+    x += dx;
+    if (x + len * char_width > 800 -1) {
+        x = 800 - 1 - len * char_width;
+    }
+    if (x <= 0) {
+        x = 0;
+    }
+
+    y += dy;
+    if (y + char_height > 600 -1) {
+        y = 600 - 1 - char_height;
+    }
+    if (y <= 0) {
+        y = 0;
+    }
+    PutStrC(x, y, colour, str);
+}
+
 //
 // ASM_MAIN_TEXT
 //
@@ -235,7 +302,8 @@ void asm_main_text(void)
             lst.insert(circle_create());
             break;
         case Key::MouseRight:
-            //
+            lst.insert(string_create());
+            printf("NAGETSI\n");
             break;
         case Key::NextFrame:
             animateC();
@@ -244,6 +312,7 @@ void asm_main_text(void)
             break;
         }
     }
+
     PutStrC(100, 100, 0xff1155, "Entaro Adun!");
 }
 
@@ -272,7 +341,7 @@ asm volatile (R"(
 )");
 #endif
 
-uint64_t rdtsc (void)
+uint64_t rdtsc(void)
 {
     unsigned tickl, tickh;
     asm ("rdtsc" : "=a" (tickl), "=d" (tickh));
