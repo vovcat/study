@@ -1,3 +1,7 @@
+#include <stdio.h>  // printf()
+//#include <stdlib.h> // malloc()
+#include <string.h> // strlen()
+
 struct Key {
     enum KeyEnum : int {
         Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
@@ -43,26 +47,15 @@ extern "C" {
     void asm_main_text(void);
 }
 
-void asm_main_text(void)
-{
-    asm volatile (R"(
-        {.intel_syntax noprefix | }
-        call asm_main
-        jmp asm_exit
-        .section data1, "awx"
-        .text
-asm_exit:
-        {.att_syntax noprefix | }
-    )" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
-}
-
 extern "C" {
     // import
     void Clear32x32C(int x, int y, int color);
     void PutStarC(int x, int y);
     void PutCircleC(int x, int y, int color, int radius);
-    void PutCircleC2(int x, int y, int color, int radius);
+    void PutStrC(int x, int y, int color, const char *str);
     void strlen_testC(int repeat);
+    void srand(void);
+    unsigned int rand(void);
     // export
     void animate_starC(struct star *s);
     void animateC();
@@ -108,6 +101,152 @@ void animateC()
     animate_starC(&star1c);
     animate_starC(&star2c);
 }
+
+struct screen_obj {
+    screen_obj *next;
+    int type;
+    //virtual bool testxy(int x, int y) = 0;
+    virtual void move(int dx, int dy) = 0;
+    virtual void animate() = 0;
+};
+
+struct circle : screen_obj {
+    int x, y, vx, vy, colour, radius;
+    circle() {
+        (*this).x = 123;
+        this->x = 123;
+        x = 123;
+    }
+    circle(int x_) {
+        x = x_ + 123;
+    }
+    virtual void animate();
+    virtual void move(int dx, int dy);
+};
+
+struct str : screen_obj {
+    int x, y, vx, vy, colour;
+    char *s;
+    int len;
+};
+
+struct list {
+    screen_obj *first;
+    void insert(screen_obj *p){
+        p->next = first;
+        first = p;
+    }
+    void walk(void (*f)(screen_obj *p))
+    {
+        screen_obj *p = first;
+        while (p != NULL) {
+            f(p);
+            p = p->next;
+        }
+    }
+};
+
+circle *circle_create()
+{
+    circle c1(12);
+    printf("hello %d %x %s %d uff\n", c1.x, 1234, "string-here", (int)"haha");
+
+    //circle *pc = (circle *) malloc(sizeof(circle));
+    //(*pc).circle(12); == pc->circle(12);
+
+    circle *pc = new circle(12);
+    printf("new pc x = %d\n", pc->x);
+
+    pc->x = rand() % 800;
+    pc->y = rand() % 600;
+    pc->vx = rand() % 60 - 30;
+    pc->vy = rand() % 60 - 30;
+    pc->radius = rand() % 60 + 10;
+    pc->colour = rand();
+
+    pc->move(0, 0);
+    return pc;
+}
+
+void circle::animate()
+{
+    PutCircleC(x, y, 0, radius);
+    move(vx, vy);
+    if (x + radius == 800 - 1) {
+        vx = -vx;
+    }
+    if (x - radius == 0) {
+        vx = -vx;
+    }
+    if (y + radius == 600 - 1) {
+        vy = -vy;
+    }
+    if (y - radius == 0) {
+        vy = -vy;
+    }
+}
+
+void circle::move(int dx, int dy)
+{
+    x += dx; // == x = x + dx;
+    if (x + radius > 800 - 1) {
+        x = 800 - 1 - radius;
+    }
+    if (x - radius < 0) {
+        x = radius;
+    }
+
+    y += dy; // == y = y + dy;
+    if (y + radius > 600 - 1) {
+        y = 600 - 1 - radius;
+    }
+    if (y - radius < 0) {
+        y = radius;
+    }
+    PutCircleC(x, y, colour, radius);
+}
+
+//
+// ASM_MAIN_TEXT
+//
+
+void animate(screen_obj *p)
+{
+    p->animate();
+}
+
+void asm_main_text(void)
+{
+    srand();
+    circle *pc = circle_create();
+    list lst;
+
+    while (1) {
+        int k = waitkey();
+        int x = (k >> 9) & 0x7FF; // 111'1111'1111 = 0x7FF
+        int y = (k >> 20) & 0x7FF; // 111'1111'1111 = 0x7FF
+        int e = k & 0x1FF;
+
+        switch (e) {
+        case Key::MouseMove:
+            // hnhmh
+            break;
+        case Key::MouseLeft:
+            lst.insert(circle_create());
+            break;
+        case Key::MouseRight:
+            //
+            break;
+        case Key::NextFrame:
+            animateC();
+            pc->animate();
+            lst.walk(animate);
+            break;
+        }
+    }
+    PutStrC(100, 100, 0xff1155, "Entaro Adun!");
+}
+
 
 #ifdef MAIN
 // g++ -DMAIN -fno-pic -fno-pie -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti asm1.cpp && ./a.out

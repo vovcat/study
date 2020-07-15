@@ -442,6 +442,8 @@ seed:
 
 // void srand(void)
 
+    .global _srand
+_srand:
 srand:
     rdtsc
     mov [seed], eax
@@ -449,6 +451,8 @@ srand:
 
 // int rand(void)
 
+    .global _rand
+_rand:
 rand:
     push edx
     mov eax, 973656667
@@ -904,6 +908,7 @@ circle_move:
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
     .global _PutCircleC
+    .global PutCircleC
 _PutCircleC:
 PutCircleC:
     push ebx
@@ -1334,6 +1339,21 @@ PutChar:
 
 // void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
 
+    .global _PutStrC
+_PutStrC:
+PutStrC:
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16] # x
+    mov ebx, [esp + 20] # y
+    mov ecx, [esp + 24] # colour
+    mov edx, [esp + 28] # str
+    call PutStr
+    pop edi
+    pop esi
+    pop ebx
+    ret
 PutStr:
     push edx
     push ecx
