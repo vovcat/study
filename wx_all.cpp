@@ -2451,6 +2451,10 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE /*hPrevInstance*/, LPTSTR lp
         return 1;
     }
 
+    // If you have changed certain window data using SetWindowLong, you must
+    // call SetWindowPos for the changes to take effect. Use the following
+    // combination for uFlags: SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
+    // https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos
     SetWindowLong(hWnd, GWL_STYLE, GetWindowLong(hWnd, GWL_STYLE) & ~WS_SIZEBOX & ~WS_MAXIMIZEBOX);
 
     // Make window semi-transparent, and mask out background color
