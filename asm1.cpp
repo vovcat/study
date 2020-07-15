@@ -1,3 +1,6 @@
+#include <string.h>
+#include <stdio.h>
+
 struct Key {
     enum KeyEnum : int {
         Nokey = 0, Bell = 7, BackSpace = 8, Tab = 9, LF = 10, FF = 12, CR = 13, Enter = CR, Escape = 27 /*0x1b,033*/,
@@ -43,37 +46,136 @@ extern "C" {
     void asm_main_text(void);
 }
 
-void asm_main_text(void)
-{
-    asm volatile (R"(
-        {.intel_syntax noprefix | }
-        call asm_main
-        jmp asm_exit
-        .section data1, "awx"
-        .text
-asm_exit:
-        {.att_syntax noprefix | }
-    )" ::: "eax", "ebx", "ecx", "edx", "esi", "edi", "cc", "memory");
-}
-
 extern "C" {
     // import
+    int rand();
+    void asm_mainC();
     void Clear32x32C(int x, int y, int color);
     void PutStarC(int x, int y);
     void PutCircleC(int x, int y, int color, int radius);
-    void PutCircleC2(int x, int y, int color, int radius);
+    void PutStrC(int x, int y, int color, const char *str);
     void strlen_testC(int repeat);
     // export
     void animate_starC(struct star *s);
     void animateC();
 }
 
-struct star {
+int pause;
+int mouse_x = 0;
+int mouse_y = 0;
+
+struct screen_obj
+{
+    int *next;
+    int type;
+    //virtual int testxy() = 0;
+    //virtual void move(int dx, int dy) = 0;
+    virtual void animate() = 0;
+};
+
+struct star : screen_obj
+{
     int x;
     int y;
     int vx;
     int vy;
+    star(int x, int y, int vx, int vy) : x(x), y(y), vx(vx), vy(vy) {}
+    virtual void animate()
+    {
+
+    }
 };
+
+const int type_circle = 2;
+struct circle : screen_obj
+{
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int colour;
+    int radius;
+    circle() {}
+    circle(int x, int y, int vx, int vy, int color, int r) : x(x), y(y), vx(vx), vy(vy), colour(color), radius(r) {}
+    virtual void animate() { }
+};
+
+const int type_str = 3;
+struct str : screen_obj
+{
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int color;
+    char *str;
+    int len;
+    virtual void animate() { }
+};
+
+int *screen_list;
+
+void asm_main_text(void)
+{
+    PutStrC(100, 100, 0xff1155, "Entaro Adun!");
+    while (1) {
+        int getkey_val = getkey();
+        int key = getkey_val;
+        key = key & 0b111111111;
+        if ((key >= Key::MouseMove) && (key <= Key::MouseRelX2)) {
+            mouse_x = getkey_val;
+            mouse_x = mouse_x & 0b00000000000011111111111000000000;
+            mouse_x = mouse_x >> 9;
+            if (mouse_x > 799) mouse_x = 799;
+            mouse_y = getkey_val;
+            mouse_y = mouse_y & 0b01111111111100000000000000000000;
+            mouse_y = mouse_y >> 20;
+            if (mouse_y > 599) mouse_y = 599;
+        }
+        //PAUSE
+        if (key == ' ') {
+            pause = -pause - 1;
+        }
+        //MOUSE_LEFT
+        else if (key == Key::MouseLeft) {
+//            list_addC(&screen_list, circle_createC());
+            printf("Nagetsi \n");
+        }
+        //MOUSE_RIGHT
+        else if (key == Key::MouseRight) {
+//            list_addC(&screen_list, string_createC());
+        }
+/*
+        //MOUSE_MOVE
+        else if (key == Key::MouseMove) {
+            int a = list_findlastC(&screen_list, &mouse_pos_testerC);
+            if (a) obj_chg_col_under_mouseC(a);
+        }
+*/
+        //NEXT_FRAME
+        else if (key == Key::NextFrame) {
+            if (!pause) animateC(); //check pause
+        }
+        //NO_ELSE
+    }
+}
+
+int mouse_pos_testerC(screen_obj *object)
+{
+    //return object->testxy(mouse_x, mouse_y);
+}
+
+void obj_chg_col_under_mouseC(screen_obj *object)
+{
+
+}
+
+//
+// STAR
+//
+
+//star star1c(200, 100, 8, 6);
+//star star2c(300, 500, 1, 1);
 
 void animate_starC(struct star *s)
 {
@@ -100,13 +202,64 @@ void animate_starC(struct star *s)
     PutStarC(s->x, s->y);
 }
 
-star star1c = {200, 100, 8, 6};
-star star2c = {300, 500, 1, 1};
+circle* circle_createC()
+{
+    circle *pc = new circle();
+    if (pc) {
+        pc->type = type_circle;
+        pc->x = mouse_x;
+        pc->y = mouse_y;
+        pc->vx = rand() % 60 - 30;
+        pc->vy = rand() % 60 - 30;
+        pc->colour = rand();
+        pc->radius = rand() % 60 + 10;
+    }
+    return pc;
+
+    //pc = (circle *)malloc(sizeof(circle));
+    //(*pc).circle(111, 222, 10, 10, 0xff1133, 22);
+
+    /*
+    mov eax, circle_size
+    call malloc
+    mov [pc], eax
+    push 22
+    push 0xff1133
+    push 10
+    push 10
+    push 222
+    push 111
+    push [pc] //&c
+    call circle
+    add esp, 28
+    */
+}
+
+str* str_createC() {
+    str *ps = new str();
+    if (ps) {
+        ps->type = type_str;
+        ps->x = mouse_x;
+        ps->y = mouse_y;
+        ps->vx = rand() % 30 - 15;
+        ps->vy = rand() % 30 - 15;
+        ps->color = rand();
+        int r = rand() & 1;
+        if (r) ps->str = "Nagetsi";
+        else ps->str = "Vareniki";
+        ps->len = strlen(ps->str);
+    }
+    return ps;
+}
+
+//
+// ANIMATE
+//
 
 void animateC()
 {
-    animate_starC(&star1c);
-    animate_starC(&star2c);
+//    animate_starC(&star1c);
+//    animate_starC(&star2c);
 }
 
 #ifdef MAIN
