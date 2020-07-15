@@ -247,7 +247,7 @@ asm_main:
     //  0 yyyyyyyyyyy xxxxxxxxxxx 111010000 (0x1d0)
 
 next:
-    call getkey
+    call waitkey
     mov ebx, eax
     and ebx, 0b111111111
     cmp ebx, 0x1d0              # MouseMove
