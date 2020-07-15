@@ -48,7 +48,8 @@ extern "C" {
 
 extern "C" {
     // import
-    int rand();
+    void srand();
+    unsigned rand();
     void asm_mainC();
     void Clear32x32C(int x, int y, int color);
     void PutStarC(int x, int y);
@@ -66,23 +67,49 @@ int mouse_y = 0;
 
 struct screen_obj
 {
-    int *next;
+    screen_obj *next;
     int type;
     //virtual int testxy() = 0;
     //virtual void move(int dx, int dy) = 0;
     virtual void animate() = 0;
 };
 
+//
+// STAR
+//
+
+const int type_star = 1;
 struct star : screen_obj
 {
     int x;
     int y;
     int vx;
     int vy;
-    star(int x, int y, int vx, int vy) : x(x), y(y), vx(vx), vy(vy) {}
+
+    star(int x, int y, int vx, int vy) : x(x), y(y), vx(vx), vy(vy) { }
+
     virtual void animate()
     {
-
+        Clear32x32C(x, y, 9548987835*0);
+        x += vx;
+        if (x >= 800-32) {
+            vx = -vx;
+            x = 800-32;
+        }
+        if (x <= 0) {
+            vx = -vx;
+            x = 0;
+        }
+        y += vy;
+        if (y >= 600-32) {
+            vy = -vy;
+            y = 600-32;
+        }
+        if (y <= 0) {
+            vy = -vy;
+            y = 0;
+        }
+        PutStarC(x, y);
     }
 };
 
@@ -95,12 +122,45 @@ struct circle : screen_obj
     int vy;
     int colour;
     int radius;
+
     circle() {}
     circle(int x, int y, int vx, int vy, int color, int r) : x(x), y(y), vx(vx), vy(vy), colour(color), radius(r) {}
-    virtual void animate() { }
+
+    virtual void animate()
+    {
+        if (rand()&1) vy++;
+        else vy--;
+        if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
+        if (x <= radius)       x  = radius;
+        if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
+        if (y <= radius)       y  = radius;
+        PutCircleC(x, y, 0, radius);
+        x += vx;
+        if (x >= 800 - 1 - radius) {
+            x  = 800 - 1 - radius;
+            vx = -vx;
+        }
+        if (x <= radius) {
+            x  = radius;
+            vx = -vx;
+        }
+        y += vy;
+        if (y >= 600 - 1 - radius) {
+            y  = 600 - 1 - radius;
+            vy = -vy;
+        }
+        if (y <= radius) {
+            y  = radius;
+            vy = -vy;
+        }
+        PutCircleC(x, y, colour, radius);
+    }
 };
+circle* circle_createC();
 
 const int type_str = 3;
+const int let_w = 8;
+const int let_h = 13;
 struct str : screen_obj
 {
     int x;
@@ -108,55 +168,121 @@ struct str : screen_obj
     int vx;
     int vy;
     int color;
-    char *str;
+    const char *str;
     int len;
-    virtual void animate() { }
+
+    virtual void animate()
+    {
+        if (x >= 800 - 1 - len * let_w) x  = 800 - 1 - len * let_w;
+        if (x <= 0) x = 0;
+        if (y >= 600 - 1 - let_h) y  = 600 - 1 - let_h;
+        if (y <= 0) y = 0;
+        PutStrC(x, y, 0, str);
+        x += vx;
+        if (x >= 800 - 1 - len * let_w) {
+            x  = 800 - 1 - len * let_w;
+            vx = -vx;
+        }
+        if (x <= 0) {
+            x  = 0;
+            vx = -vx;
+        }
+        y += vy;
+        if (y >= 600 - 1 - let_h) {
+            y  = 600 - 1 - let_h;
+            vy = -vy;
+        }
+        if (y <= 0) {
+            y  = 0;
+            vy = -vy;
+        }
+        PutStrC(x, y, color, str);
+    }
+};
+str* str_createC();
+
+struct list
+{
+    screen_obj *next;
+
+    list() { next = NULL; }
+    list(str *n) { next = n; }
+
+    void add(screen_obj *po)
+    {
+        if (!po) return;
+        screen_obj *pl = next;
+        if (!pl) {
+            next = po;
+        } else {
+            while (pl->next)
+                pl = pl->next;
+            pl->next = po;
+        }
+        po->next = NULL;
+    }
+
+    void walk(void (*f)(screen_obj *p))
+    {
+        screen_obj *pl = next;
+        while (pl) {
+            f(pl);
+            pl = pl->next;
+        }
+    }
+
+    void insert(str *o)
+    {
+        o->next = this->next;
+        this->next = o;
+    }
 };
 
-int *screen_list;
+list screen_list;
 
 void asm_main_text(void)
 {
+    srand();
     PutStrC(100, 100, 0xff1155, "Entaro Adun!");
+
     while (1) {
-        int getkey_val = getkey();
+        int getkey_val = waitkey();
         int key = getkey_val;
         key = key & 0b111111111;
         if ((key >= Key::MouseMove) && (key <= Key::MouseRelX2)) {
             mouse_x = getkey_val;
             mouse_x = mouse_x & 0b00000000000011111111111000000000;
             mouse_x = mouse_x >> 9;
-            if (mouse_x > 799) mouse_x = 799;
+            if (mouse_x > 800 - 1) mouse_x = 800 - 1;
             mouse_y = getkey_val;
             mouse_y = mouse_y & 0b01111111111100000000000000000000;
             mouse_y = mouse_y >> 20;
-            if (mouse_y > 599) mouse_y = 599;
+            if (mouse_y > 600 - 1) mouse_y = 600 - 1;
         }
-        //PAUSE
+        // PAUSE
         if (key == ' ') {
             pause = -pause - 1;
         }
-        //MOUSE_LEFT
+        // MOUSE_LEFT
         else if (key == Key::MouseLeft) {
-//            list_addC(&screen_list, circle_createC());
-            printf("Nagetsi \n");
+            screen_list.add(circle_createC());
         }
-        //MOUSE_RIGHT
+        // MOUSE_RIGHT
         else if (key == Key::MouseRight) {
-//            list_addC(&screen_list, string_createC());
+            screen_list.add(str_createC());
         }
 /*
-        //MOUSE_MOVE
+        // MOUSE_MOVE
         else if (key == Key::MouseMove) {
             int a = list_findlastC(&screen_list, &mouse_pos_testerC);
             if (a) obj_chg_col_under_mouseC(a);
         }
 */
-        //NEXT_FRAME
+        // NEXT_FRAME
         else if (key == Key::NextFrame) {
             if (!pause) animateC(); //check pause
         }
-        //NO_ELSE
+        // NO_ELSE
     }
 }
 
@@ -171,36 +297,8 @@ void obj_chg_col_under_mouseC(screen_obj *object)
 }
 
 //
-// STAR
+// CIRCLE
 //
-
-//star star1c(200, 100, 8, 6);
-//star star2c(300, 500, 1, 1);
-
-void animate_starC(struct star *s)
-{
-    Clear32x32C(s->x, s->y, 9548987835*0);
-    s->x = s->x + s->vx;
-    if (s->x >= 800-32) {
-        s->vx = -s->vx;
-        s->x = 800-32;
-    }
-    if (s->x <= 0) {
-        s->vx = -s->vx;
-        s->x = 0;
-    }
-    s->y = s->y + s->vy;
-    if (s->y >= 600-32) {
-        s->vy = -s->vy;
-        s->y = 600-32;
-    }
-    if (s->y <= 0) {
-        s->vy = -s->vy;
-        s->y = 0;
-    }
-
-    PutStarC(s->x, s->y);
-}
 
 circle* circle_createC()
 {
@@ -235,7 +333,12 @@ circle* circle_createC()
     */
 }
 
-str* str_createC() {
+//
+// STRING
+//
+
+str* str_createC()
+{
     str *ps = new str();
     if (ps) {
         ps->type = type_str;
@@ -256,10 +359,19 @@ str* str_createC() {
 // ANIMATE
 //
 
+star star1c(200, 100, 8, 6);
+star star2c(300, 500, 1, 1);
+
+void animate_obj(screen_obj *p)
+{
+    p->animate();
+}
+
 void animateC()
 {
-//    animate_starC(&star1c);
-//    animate_starC(&star2c);
+    screen_list.walk(animate_obj);
+    star1c.animate();
+    star2c.animate();
 }
 
 #ifdef MAIN

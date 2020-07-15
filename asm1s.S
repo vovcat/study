@@ -449,14 +449,16 @@ seed:
 
 // void srand(void)
 
+    .global _srand
+_srand:
 srand:
     rdtsc
     mov [seed], eax
     ret
 
-// int rand(void)
+// unsigned int rand(void)
 
-.global _rand
+    .global _rand
 _rand:
 rand:
     push edx
@@ -913,6 +915,7 @@ circle_move:
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
     .global _PutCircleC
+    .global PutCircleC
 _PutCircleC:
 PutCircleC:
     push ebx
