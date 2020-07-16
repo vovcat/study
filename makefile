@@ -46,10 +46,12 @@ MNTd=/mnt/win/deti/d
 MNTs=/mnt/win/fs/d
 DIR=vmproj/asm1
 
-put:
+put: putd puts
+putd:
 	mount $(MNTd)
 	-cp -p -t "$(MNTd)/$(DIR)" $(SRC)
 	umount $(MNTd)
+puts:
 	mount $(MNTs)
 	-cp -p -t "$(MNTs)/$(DIR)" $(SRC)
 	umount $(MNTs)
