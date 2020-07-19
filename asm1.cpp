@@ -61,7 +61,7 @@ extern "C" {
     void animateC();
 }
 
-int pause;
+int pause = 1;
 int mouse_x = 0;
 int mouse_y = 0;
 
@@ -231,6 +231,44 @@ struct list
         }
     }
 
+    screen_obj *findlast(bool (*P)(screen_obj *p))
+    {
+        screen_obj *plast = 0;
+        screen_obj *pl = next;
+        while (pl) {
+            if (P(pl)) plast = pl;
+            pl = pl->next;
+        }
+        return plast;
+    }
+
+    static screen_obj *fl_helper_1(screen_obj *pl, bool (*P)(screen_obj *p))
+    {
+        if (!pl) return NULL;
+        screen_obj *p = fl_helper_1(pl->next, P);
+        if (p) return p;
+        if (P(pl)) return pl;
+        return NULL;
+    }
+
+    screen_obj *findlast_h1(bool (*P)(screen_obj *p))
+    {
+        return fl_helper_1(next, P);
+    }
+
+    screen_obj *findlast1(bool (*P)(screen_obj *p), screen_obj *pl = NULL)
+    {
+        if (!pl) {
+            if (next) return findlast1(P, next);
+            return NULL;
+        }
+        screen_obj *p = NULL;
+        if (pl->next) p = findlast1(P, pl->next);
+        if (p) return p;
+        if (P(pl)) return pl;
+        return NULL;
+    }
+
     void insert(str *o)
     {
         o->next = this->next;
@@ -239,6 +277,8 @@ struct list
 };
 
 list screen_list;
+
+bool fn(screen_obj *){ return true; }
 
 void asm_main_text(void)
 {
@@ -261,7 +301,11 @@ void asm_main_text(void)
         }
         // PAUSE
         if (key == ' ') {
-            pause = -pause - 1;
+            pause = !pause;
+        }
+        // MOUSE_LEFT
+        else if (key == 'l') {
+            printf("last = %p\n", screen_list.findlast1([](screen_obj *) -> bool { return 1; }));
         }
         // MOUSE_LEFT
         else if (key == Key::MouseLeft) {
@@ -280,7 +324,7 @@ void asm_main_text(void)
 */
         // NEXT_FRAME
         else if (key == Key::NextFrame) {
-            if (!pause) animateC(); //check pause
+            if (pause) animateC(); //check pause
         }
         // NO_ELSE
     }
