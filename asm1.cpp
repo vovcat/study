@@ -60,6 +60,10 @@ extern "C" {
     void animateC();
 }
 
+struct {
+    int x, y;
+} mouse;
+
 struct star {
     int x;
     int y;
@@ -141,6 +145,22 @@ struct list {
         first = p;
     }
 
+    void add(screen_obj *o)
+    {
+        screen_obj *p = first;
+        if (p == NULL){
+            first = o;
+            o->next = NULL;
+            return;
+        }
+        while (p->next != NULL)
+            p = p->next;
+
+        p->next = o;
+        o->next = NULL;
+
+    }
+
     void walk(void (*f)(screen_obj *p))
     {
         screen_obj *p = first;
@@ -149,7 +169,21 @@ struct list {
             p = p->next;
         }
     }
+
+    screen_obj *findlast(bool (*P)(screen_obj *))
+    {
+        screen_obj *p = first;
+        screen_obj *t = NULL;
+
+        while (p != NULL) {
+            if (P(p))
+                t = p;
+            p = p->next;
+        }
+        return t;
+    }
 };
+
 
 circle *circle_create()
 {
@@ -162,8 +196,8 @@ circle *circle_create()
     circle *pc = new circle(12);
     printf("new pc x = %d\n", pc->x);
 
-    pc->x = rand() % 800;
-    pc->y = rand() % 600;
+    pc->x = mouse.x;//rand() % 800;
+    pc->y = mouse.y;//rand() % 600;
     pc->vx = rand() % 60 - 30;
     pc->vy = rand() % 60 - 30;
     pc->radius = rand() % 60 + 10;
@@ -224,8 +258,8 @@ str *string_create()
     ps->len = strlen(ps->str);
     printf("%d\n", ps->len);
 
-    ps->x = rand() % 800;
-    ps->y = rand() % 600;
+    ps->x = mouse.x;//rand() % 800;
+    ps->y = mouse.y;//rand() % 600;
     ps->vx = rand() % 30 - 10;
     ps->vy = rand() % 30 - 10;
     ps->colour = rand();
@@ -282,33 +316,47 @@ void animate(screen_obj *p)
     p->animate();
 }
 
+bool Ptrue(screen_obj *p) {
+    //printf("P(%p)\n", p);
+    return true;
+}
+
 void asm_main_text(void)
 {
     srand();
     circle *pc = circle_create();
     list lst;
+    int pause = 0;
 
     while (1) {
         int k = waitkey();
-        int x = (k >> 9) & 0x7FF; // 111'1111'1111 = 0x7FF
-        int y = (k >> 20) & 0x7FF; // 111'1111'1111 = 0x7FF
+        mouse.x = (k >> 9) & 0x7FF; // 111'1111'1111 = 0x7FF
+        mouse.y = (k >> 20) & 0x7FF; // 111'1111'1111 = 0x7FF
         int e = k & 0x1FF;
 
         switch (e) {
+        case ' ':
+            pause = !pause;
+            break;
+        case 'l':
+            printf("the last is %p\n", lst.findlast([](screen_obj *){return true;}));
+            break;
         case Key::MouseMove:
             // hnhmh
             break;
         case Key::MouseLeft:
-            lst.insert(circle_create());
+            lst.add(circle_create());
             break;
         case Key::MouseRight:
-            lst.insert(string_create());
+            lst.add(string_create());
             printf("NAGETSI\n");
             break;
         case Key::NextFrame:
+            if(pause == 0) {
             animateC();
             pc->animate();
             lst.walk(animate);
+            }
             break;
         }
     }
