@@ -769,9 +769,6 @@ circle_animate:
     // add gravity (increment vy)
     mov eax, [esi + circle.vy]
     inc eax
-    mov ebx, 4000
-    cmp eax, ebx
-    cmovg eax, ebx
     mov [esi + circle.vy], eax
     // sanitize coordinates before clearing
     mov eax, [esi + circle.x]
