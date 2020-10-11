@@ -61,6 +61,95 @@ extern "C" {
     void animateC();
 }
 
+void PutPix(int x, int y, int color)
+{
+    pframebuf[0][y][x] = color;
+}
+
+void PutCircleNewC(int x, int y, int color, int radius)
+{
+    int ch_x = x - radius;
+    int ch_y = y - radius;
+    for (int i = ch_y; i < y + radius; ++i) {
+        for (int j = ch_x; j < x + radius; ++j) {
+            if (((j - x)*(j - x) + (i - y)*(i - y)) < (radius * radius)) {
+                if (((j >= 0) && (j < 800)) && ((i >= 0) && (i < 600))) {
+                        PutPix(j, i, color ? color + j + i : 0);
+                }
+            }
+        }
+    }
+}
+
+struct rad_grad_param
+{
+    int inner_color;
+    int outer_color;
+};
+
+double sqrt(double);
+
+int RadGradTex(int dx, int dy, int r, void *param)
+{
+    rad_grad_param *p = (rad_grad_param *) param;
+    int inner_color = p->inner_color;
+    int outer_color = p->outer_color;
+
+    int L = dx*dx + dy*dy;
+    // L=0 => ret inner_color
+    // L=r*r => ret outer_color
+    // L=r*r => ret outer_color
+    double t = 1.0 * L / r / r;
+    //return ((1.0 - t) * inner_color + t * outer_color);
+    int m = 0xff;
+    int r_in = (inner_color >> 16) & m;
+    int g_in = (inner_color >>  8) & m;
+    int b_in = (inner_color >>  0) & m;
+    int r_out = (outer_color >> 16) & m;
+    int g_out = (outer_color >>  8) & m;
+    int b_out = (outer_color >>  0) & m;
+    return (((int)((1.0-t) * r_in + t * r_out) << 16) +
+            ((int)((1.0-t) * g_in + t * g_out) <<  8) +
+            ((int)((1.0-t) * b_in + t * b_out) <<  0));
+}
+
+int RandTex(int /*dx*/, int /*dy*/, int /*r*/, void */*param*/)
+{
+    return rand();
+}
+
+int SolidBlackTex(int /*dx*/, int /*dy*/, int /*r*/, void */*param*/)
+{
+    return 0;
+}
+
+void PutTexturedCircle(int x, int y, int radius, int (*texture)(int dx, int dy, int r, void *param), void *param)
+{
+    int ch_x = x - radius;
+    int ch_y = y - radius;
+
+    for (int i = ch_y; i < y + radius; ++i) {
+        for (int j = ch_x; j < x + radius; ++j) {
+            if (((j - x)*(j - x) + (i - y)*(i - y)) < (radius * radius)) {
+                if (((j >= 0) && (j < 800)) && ((i >= 0) && (i < 600))) {
+                        PutPix(j, i, texture(j-x, i-y, radius, param));
+                }
+            }
+        }
+    }
+}
+
+const int YELLOW = 0xffff00, GREEN = 0x00ff00;
+
+void test()
+{
+    PutTexturedCircle(100, 100, 10, RandTex, NULL);
+    PutTexturedCircle(100, 100, 10, SolidBlackTex, NULL);
+    rad_grad_param p1 = { YELLOW, GREEN };
+    PutTexturedCircle(100, 100, 10, RadGradTex, &p1);
+}
+
+
 int pause = 1;
 int mouse_x = 0;
 int mouse_y = 0;
@@ -69,7 +158,8 @@ struct screen_obj
 {
     screen_obj *next;
     int type;
-    //virtual int testxy() = 0;
+    virtual bool testxy(int x, int y) = 0;
+    virtual void clear() = 0;
     //virtual void move(int dx, int dy) = 0;
     virtual void animate() = 0;
 };
@@ -88,9 +178,23 @@ struct star : screen_obj
 
     star(int x, int y, int vx, int vy) : x(x), y(y), vx(vx), vy(vy) { }
 
-    virtual void animate()
+    virtual bool testxy(int cx, int cy)
+    {
+        if (((cx > x) && (cx < x + 32)) &&
+            ((cy > y) && (cy < y + 32))) {
+                return true;
+            }
+        else return false;
+    }
+
+    virtual void clear()
     {
         Clear32x32C(x, y, 9548987835*0);
+    }
+
+    virtual void animate()
+    {
+        clear();
         x += vx;
         if (x >= 800-32) {
             vx = -vx;
@@ -126,15 +230,28 @@ struct circle : screen_obj
     circle() {}
     circle(int x, int y, int vx, int vy, int color, int r) : x(x), y(y), vx(vx), vy(vy), colour(color), radius(r) {}
 
-    virtual void animate()
+    virtual bool testxy(int cx, int cy)
     {
-        if (rand()&1) vy++;
-        else vy--;
+        if (((cx - x) * (cx - x) + (cy - y) * (cy - y)) < (radius * radius)) {
+            return true;
+        }
+        else return false;
+    }
+
+    virtual void clear()
+    {
         if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
         if (x <= radius)       x  = radius;
         if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
         if (y <= radius)       y  = radius;
-        PutCircleC(x, y, 0, radius);
+        PutCircleNewC(x, y, 0, radius);
+    }
+
+    virtual void animate()
+    {
+        if (rand()&1) vy++;
+        else vy--;
+        clear();
         x += vx;
         if (x >= 800 - 1 - radius) {
             x  = 800 - 1 - radius;
@@ -153,7 +270,9 @@ struct circle : screen_obj
             y  = radius;
             vy = -vy;
         }
-        PutCircleC(x, y, colour, radius);
+//        PutTexturedCircle(x, y, radius, SolidBlackTex, NULL);
+        rad_grad_param p1 = { YELLOW, GREEN };
+        PutTexturedCircle(x, y, radius, RadGradTex, &p1);
     }
 };
 circle* circle_createC();
@@ -171,13 +290,27 @@ struct str : screen_obj
     const char *str;
     int len;
 
-    virtual void animate()
+    virtual bool testxy(int cx, int cy)
+    {
+        if (((cx > x) && (cx < x + len * let_w)) &&
+            ((cy > y) && (cy < y + let_h))) {
+                return true;
+            }
+        else return false;
+    }
+
+    virtual void clear()
     {
         if (x >= 800 - 1 - len * let_w) x  = 800 - 1 - len * let_w;
         if (x <= 0) x = 0;
         if (y >= 600 - 1 - let_h) y  = 600 - 1 - let_h;
         if (y <= 0) y = 0;
         PutStrC(x, y, 0, str);
+    }
+
+    virtual void animate()
+    {
+        clear();
         x += vx;
         if (x >= 800 - 1 - len * let_w) {
             x  = 800 - 1 - len * let_w;
@@ -274,11 +407,33 @@ struct list
         o->next = this->next;
         this->next = o;
     }
+
+    screen_obj *remove(screen_obj *o)
+    {
+        if (this->next == o) {
+            this->next = o->next;
+            return o;
+        }
+        screen_obj *p = this->next;
+        while ((p->next != o) && (p->next != NULL)) {
+            p = p->next;
+        }
+        if (p->next) {
+            p->next = o->next;
+            return o;
+        }
+        return NULL;
+    }
 };
 
 list screen_list;
 
 bool fn(screen_obj *){ return true; }
+
+bool mouse_pos_testerC(screen_obj *object)
+{
+    return object->testxy(mouse_x, mouse_y);
+}
 
 void asm_main_text(void)
 {
@@ -315,29 +470,23 @@ void asm_main_text(void)
         else if (key == Key::MouseRight) {
             screen_list.add(str_createC());
         }
-/*
-        // MOUSE_MOVE
-        else if (key == Key::MouseMove) {
-            int a = list_findlastC(&screen_list, &mouse_pos_testerC);
-            if (a) obj_chg_col_under_mouseC(a);
+
+        // MOUSE_MIDDLE
+        else if (key == Key::MouseMiddle) {
+            screen_obj *a = screen_list.findlast1(&mouse_pos_testerC);
+            if (a) {
+                screen_list.remove(a);
+                a->clear();
+            }
+
         }
-*/
+
         // NEXT_FRAME
         else if (key == Key::NextFrame) {
             if (pause) animateC(); //check pause
         }
         // NO_ELSE
     }
-}
-
-int mouse_pos_testerC(screen_obj *object)
-{
-    //return object->testxy(mouse_x, mouse_y);
-}
-
-void obj_chg_col_under_mouseC(screen_obj *object)
-{
-
 }
 
 //
@@ -416,6 +565,8 @@ void animateC()
     screen_list.walk(animate_obj);
     star1c.animate();
     star2c.animate();
+    PutPix(400, 300, 0xffff00);
+    PutCircleNewC(100, 100, 0xff0000, 20);
 }
 
 #ifdef MAIN

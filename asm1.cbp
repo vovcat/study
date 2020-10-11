@@ -39,6 +39,8 @@
 					<Add library="winmm" />
 					<Add library="ws2_32" />
 					<Add library="avrt" />
+					<Add library="dwmapi" />
+					<Add library="m" />
 				</Linker>
 			</Target>
 		</Build>
