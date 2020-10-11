@@ -43,21 +43,24 @@ vars =	$(foreach v, $(filter-out .VARIABLES vars, $(.VARIABLES)),	\
 	)
 
 MNTd=/mnt/win/deti/d
-MNTs=/mnt/win/fs/d
+MNTr=/mnt/win/reb/d
 DIR=vmproj/asm1
 
-put:
+put: putd putr
+
+putd:
 	mount $(MNTd)
 	-cp -p -t "$(MNTd)/$(DIR)" $(SRC)
 	umount $(MNTd)
-	mount $(MNTs)
-	-cp -p -t "$(MNTs)/$(DIR)" $(SRC)
-	umount $(MNTs)
+putr:
+	mount $(MNTr)
+	-cp -p -t "$(MNTr)/$(DIR)" $(SRC)
+	umount $(MNTr)
 getd:
 	mount $(MNTd)
 	-cd "$(MNTd)/$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
 	umount $(MNTd)
-gets:
-	mount $(MNTs)
-	-cd "$(MNTs)/$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
-	umount $(MNTs)
+getr:
+	mount $(MNTr)
+	-cd "$(MNTr)/$(DIR)" && cp -p -t "$(CURDIR)" $(SRC)
+	umount $(MNTr)

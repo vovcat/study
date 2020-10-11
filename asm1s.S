@@ -78,6 +78,13 @@ dot:   .string "dot=xxxxxxxx"
 hex:   .string "0123456789abcdef"
 s1:    .string "01234567890123456789012345678901234567890123456789012345678901234567890123456789"
 
+    .global _asm_mainC
+    .global asm_mainC
+_asm_mainC:
+asm_mainC:
+    call asm_main
+    ret
+
     .align 8
     .global asm_main
 asm_main:

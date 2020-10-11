@@ -1,5 +1,6 @@
 #include <stdio.h>  // printf()
 #include <string.h> // strlen()
+#include <cmath> // std::sqrt()
 
 struct Key {
     enum KeyEnum : int {
@@ -14,21 +15,21 @@ struct Key {
         NextFrame = 0x1ff, MAX = 0x1ff, SIZE = 0x200
     };
     enum StateEnum : int {
-        StateShift =		0x01,
-        StateCapsLock =		0x02,
-        StateControl =		0x04,
-        StateAlt =		0x08,
-        StateMod2 =		0x10,
-        StateMod3 =		0x20,
-        StateMod4 =		0x40,
-        StateWin =		0x80,
-        StateMouseLeft =	0x100,
-        StateMouseMiddle =	0x200,
-        StateMouseRight =	0x400,
-        StateMousePgUp =	0x800,
-        StateMousePgDn =	0x1000,
-        StateLang1 =		0x2000,
-        StateLang2 =		0x4000,
+        StateShift =       0x01,
+        StateCapsLock =    0x02,
+        StateControl =     0x04,
+        StateAlt =         0x08,
+        StateMod2 =        0x10,
+        StateMod3 =        0x20,
+        StateMod4 =        0x40,
+        StateWin =         0x80,
+        StateMouseLeft =   0x100,
+        StateMouseMiddle = 0x200,
+        StateMouseRight =  0x400,
+        StateMousePgUp =   0x800,
+        StateMousePgDn =   0x1000,
+        StateLang1 =       0x2000,
+        StateLang2 =       0x4000,
     };
 };
 
@@ -48,99 +49,320 @@ extern "C" {
 
 extern "C" {
     // import
+    void srand(unsigned);
+    int rand(void);
+    // import
+    void asm_mainC();
     void Clear32x32C(int x, int y, int color);
     void PutStarC(int x, int y);
     void PutCircleC(int x, int y, int color, int radius);
     void PutStrC(int x, int y, int color, const char *str);
     void strlen_testC(int repeat);
-    void srand(void);
-    unsigned int rand(void);
     // export
     void animate_starC(struct star *s);
     void animateC();
 }
 
+void PutPix(int x, int y, int color)
+{
+    pframebuf[0][y][x] = color;
+}
+
+void PutCircleNewC(int x, int y, int color, int radius)
+{
+    int ch_x = x - radius;
+    int ch_y = y - radius;
+    for (int i = ch_y; i < y + radius; ++i) {
+        for (int j = ch_x; j < x + radius; ++j) {
+            if (((j - x)*(j - x) + (i - y)*(i - y)) < (radius * radius)) {
+                if (((j >= 0) && (j < 800)) && ((i >= 0) && (i < 600))) {
+                        PutPix(j, i, color ? color + j + i : 0);
+                }
+            }
+        }
+    }
+}
+
+struct rad_grad_param
+{
+    int inner_color;
+    int outer_color;
+};
+
+int mix_colors(int inner_color, int outer_color, double t)
+{
+    int icr = inner_color >> 16 & 0xFF;
+    int icg = inner_color >> 8 & 0xFF;
+    int icb = inner_color & 0xFF;
+    int ocr = outer_color >> 16 & 0xFF;
+    int ocg = outer_color >> 8 & 0xFF;
+    int ocb = outer_color & 0xFF;
+    return
+        ((int((1.0-t) * icr + t * ocr) & 0xFF) << 16) +
+        ((int((1.0-t) * icg + t * ocg) & 0xFF) << 8) +
+        (int((1.0-t) * icb + t * ocb) & 0xFF);
+
+}
+
+int RadGradTex(int dx, int dy, int r, void *param)
+{
+    rad_grad_param *p = (rad_grad_param *) param;
+    int inner_color = p->inner_color;
+    int outer_color = p->outer_color;
+    int L = dx*dx + dy*dy;
+    float t = 1.0 * std::sqrt(L) / r;
+    return mix_colors(inner_color, outer_color, t);
+
+}
+
+int HorizGradTex(int dx, int dy, int r, void *param)
+{
+    rad_grad_param *p = (rad_grad_param *) param;
+    int inner_color = p->inner_color;
+    int outer_color = p->outer_color;
+    int L = dx;
+    float t = 1.0 * L / (r + r) + 0.5;
+    return mix_colors(inner_color, outer_color, t);
+
+}
+
+int DiagGradTex(int dx, int dy, int r, void *param)
+{
+    rad_grad_param *p = (rad_grad_param *) param;
+    int inner_color = p->inner_color;
+    int outer_color = p->outer_color;
+    int L = dx + dy;
+    float t = 1.0 / 1.4142 * L / (r + r) + 0.5;
+    return mix_colors(inner_color, outer_color, t);
+
+}
+
+int RandTex(int /*dx*/, int /*dy*/, int /*r*/, void */*param*/)
+{
+    return rand();
+}
+
+int SolidBlackTex(int /*dx*/, int /*dy*/, int /*r*/, void */*param*/)
+{
+    return 0;
+}
+
+void PutTexturedCircle(int x, int y, int radius, int (*texture)(int dx, int dy, int r, void *param), void *param)
+{
+    int ch_x = x - radius;
+    int ch_y = y - radius;
+
+    for (int i = ch_y; i < y + radius; ++i) {
+        for (int j = ch_x; j < x + radius; ++j) {
+            if (((j - x)*(j - x) + (i - y)*(i - y)) < (radius * radius)) {
+                if (((j >= 0) && (j < 800)) && ((i >= 0) && (i < 600))) {
+                        PutPix(j, i, texture(j-x, i-y, radius, param));
+                }
+            }
+        }
+    }
+}
+
+//const int YELLOW = 0xFC00FF, GREEN = 0x00DBDE;
+//const int YELLOW = 0xC850C0, GREEN = 0x4158D0;
+const int YELLOW = 0xFFFF00, GREEN = 0x00FF00;
+
+void test()
+{
+    PutTexturedCircle(100, 100, 10, RandTex, NULL);
+    PutTexturedCircle(100, 100, 10, SolidBlackTex, NULL);
+    rad_grad_param p1 = { YELLOW, GREEN };
+    PutTexturedCircle(100, 100, 10, RadGradTex, &p1);
+}
+
+int pause = 1;
+
+// varable declaration using anonymous struct
 struct {
     int x, y;
 } mouse;
 
-struct star {
+struct screen_obj
+{
+    screen_obj *next;
+    int type;
+    virtual bool testxy(int x, int y) = 0;
+    virtual void clear() = 0;
+    //virtual void move(int dx, int dy) = 0;
+    virtual void animate() = 0;
+};
+
+//
+// STAR
+//
+
+const int type_star = 1;
+struct star : screen_obj
+{
     int x;
     int y;
     int vx;
     int vy;
+
+    star(int x, int y, int vx, int vy) : x(x), y(y), vx(vx), vy(vy) { }
+
+    virtual bool testxy(int x, int y)
+    {
+        return x >= this->x && x < (this->x + 32) &&
+               y >= this->y && y < (this->y + 32);
+    }
+
+    virtual void clear()
+    {
+        Clear32x32C(x, y, 9548987835*0);
+    }
+
+    virtual void animate()
+    {
+        clear();
+        x += vx;
+        if (x >= 800-32) {
+            vx = -vx;
+            x = 800-32;
+        }
+        if (x <= 0) {
+            vx = -vx;
+            x = 0;
+        }
+        y += vy;
+        if (y >= 600-32) {
+            vy = -vy;
+            y = 600-32;
+        }
+        if (y <= 0) {
+            vy = -vy;
+            y = 0;
+        }
+        PutStarC(x, y);
+    }
 };
 
-void animate_starC(struct star *s)
+const int type_circle = 2;
+struct circle : screen_obj
 {
-    Clear32x32C(s->x, s->y, 9548987835*0);
-    s->x = s->x + s->vx;
-    if (s->x >= 800-32) {
-        s->vx = -s->vx;
-        s->x = 800-32;
-    }
-    if (s->x <= 0) {
-        s->vx = -s->vx;
-        s->x = 0;
-    }
-    s->y = s->y + s->vy;
-    if (s->y >= 600-32) {
-        s->vy = -s->vy;
-        s->y = 600-32;
-    }
-    if (s->y <= 0) {
-        s->vy = -s->vy;
-        s->y = 0;
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int colour;
+    int radius;
+
+    circle() {}
+    circle(int x, int y, int vx, int vy, int color, int r) : x(x), y(y), vx(vx), vy(vy), colour(color), radius(r) {}
+
+    virtual bool testxy(int x, int y)
+    {
+        return (x - this->x)*(x - this->x) + (y - this->y)*(y - this->y) <= radius*radius;
     }
 
-    PutStarC(s->x, s->y);
-}
+    virtual void clear()
+    {
+        if (rand()&1) vy++;
+        else vy--;
+        if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
+        if (x <= radius)       x  = radius;
+        if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
+        if (y <= radius)       y  = radius;
+        PutCircleNewC(x, y, 0, radius);
+    }
 
-star star1c = {200, 100, 8, 6};
-star star2c = {300, 500, 1, 1};
+    virtual void animate()
+    {
+        clear();
+        x += vx;
+        if (x >= 800 - 1 - radius) {
+            x  = 800 - 1 - radius;
+            vx = -vx;
+        }
+        if (x <= radius) {
+            x  = radius;
+            vx = -vx;
+        }
+        y += vy;
+        if (y >= 600 - 1 - radius) {
+            y  = 600 - 1 - radius;
+            vy = -vy;
+        }
+        if (y <= radius) {
+            y  = radius;
+            vy = -vy;
+        }
+//        PutTexturedCircle(x, y, radius, SolidBlackTex, NULL);
+        rad_grad_param p1 = { GREEN, YELLOW };
+        PutTexturedCircle(x, y, radius, RadGradTex, &p1);
+    }
+};
+circle* circle_createC();
 
-void animateC()
+const int type_str = 3;
+struct str : screen_obj
 {
-    animate_starC(&star1c);
-    animate_starC(&star2c);
-}
-
-struct screen_obj {
-    screen_obj *next;
-    int type;
-    //virtual bool testxy(int x, int y) = 0;
-    virtual void move(int dx, int dy) = 0;
-    virtual void animate() = 0;
-};
-
-struct circle : screen_obj {
-    int x, y, vx, vy, colour, radius;
-    circle() {
-        (*this).x = 123;
-        this->x = 123;
-        x = 123;
-    }
-    circle(int x_) {
-        x = x_ + 123;
-    }
-    virtual void animate();
-    virtual void move(int dx, int dy);
-};
-
-struct str : screen_obj {
-    const int char_width = 8;
-    const int char_height = 13;
-    int x, y, vx, vy, colour;
+    const int let_w = 8;
+    const int let_h = 13;
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int color;
     const char *str;
     int len;
-    virtual void animate();
-    virtual void move(int dx, int dy);
+
+    virtual bool testxy(int x, int y)
+    {
+        return x >= this->x && x < (this->x + len * let_w) &&
+               y >= this->y && y < (this->y + let_h);
+    }
+
+    virtual void clear()
+    {
+        if (x >= 800 - 1 - len * let_w) x  = 800 - 1 - len * let_w;
+        if (x <= 0) x = 0;
+        if (y >= 600 - 1 - let_h) y  = 600 - 1 - let_h;
+        if (y <= 0) y = 0;
+        PutStrC(x, y, 0, str);
+    }
+
+    virtual void animate()
+    {
+        clear();
+        x += vx;
+        if (x >= 800 - 1 - len * let_w) {
+            x  = 800 - 1 - len * let_w;
+            vx = -vx;
+        }
+        if (x <= 0) {
+            x  = 0;
+            vx = -vx;
+        }
+        y += vy;
+        if (y >= 600 - 1 - let_h) {
+            y  = 600 - 1 - let_h;
+            vy = -vy;
+        }
+        if (y <= 0) {
+            y  = 0;
+            vy = -vy;
+        }
+        PutStrC(x, y, color, str);
+    }
 };
+str* str_createC();
 
 struct list {
     screen_obj *first;
 
-    void insert(screen_obj *p){
+    list()
+    {
+        first = NULL;
+    }
+
+    void insert(screen_obj *p)
+    {
         p->next = first;
         first = p;
     }
@@ -148,7 +370,7 @@ struct list {
     void add(screen_obj *o)
     {
         screen_obj *p = first;
-        if (p == NULL){
+        if (p == NULL) {
             first = o;
             o->next = NULL;
             return;
@@ -158,7 +380,6 @@ struct list {
 
         p->next = o;
         o->next = NULL;
-
     }
 
     void walk(void (*f)(screen_obj *p))
@@ -182,150 +403,187 @@ struct list {
         }
         return t;
     }
+
+    screen_obj *remove(screen_obj *o)
+    {
+        screen_obj *p = first;
+        if (o == NULL)
+            return NULL;
+        if (p == NULL)         // no elements
+            return NULL;
+        if (p->next == NULL) { // one element
+            if (p != o)
+                return NULL;
+            first = NULL;
+            return p;
+        }
+        if (p == o) {          // o is first element
+            first = p->next;
+            p->next = NULL;
+            return p;
+        }
+        while ((p->next != o) && (p->next != NULL)) {
+            p = p->next;
+        }
+        if (p->next == o) {
+            p->next = o->next;
+            o->next = NULL;
+            return o;
+        }
+        return NULL;
+    }
 };
 
+list screen_list;
 
-circle *circle_create()
+const int type_particle = 4;
+struct particle : screen_obj
 {
-    circle c1(12);
-    printf("hello %d %x %s %d uff\n", c1.x, 1234, "string-here", (int)"haha");
+    int x;
+    int y;
+    int vx;
+    int vy;
+    int colour;
+    int radius;
+    int ttl = 90;
 
-    //circle *pc = (circle *) malloc(sizeof(circle));
-    //(*pc).circle(12); == pc->circle(12);
+    particle() {}
+    particle(int x, int y, int vx, int vy, int color, int r) : x(x), y(y), vx(vx), vy(vy), colour(color), radius(r) {}
 
-    circle *pc = new circle(12);
-    printf("new pc x = %d\n", pc->x);
+    virtual bool testxy(int x, int y)
+    {
+        return (x - this->x)*(x - this->x) + (y - this->y)*(y - this->y) <= radius*radius;
+    }
 
-    pc->x = mouse.x;//rand() % 800;
-    pc->y = mouse.y;//rand() % 600;
-    pc->vx = rand() % 60 - 30;
-    pc->vy = rand() % 60 - 30;
-    pc->radius = rand() % 60 + 10;
-    pc->colour = rand();
+    virtual void clear()
+    {
+        //if (rand()&1) vy++;
+        //else vy--;
+        if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
+        if (x <= radius)       x  = radius;
+        if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
+        if (y <= radius)       y  = radius;
+        PutCircleNewC(x, y, 0, radius);
+    }
 
-    pc->move(0, 0);
+    virtual void animate()
+    {
+        clear();
+        x += vx;
+        if (ttl % 2 == 0)
+            radius--;
+        int t = 0;
+        if (radius == 0) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        if (ttl == 0) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        if (x >= 800 - 1 - radius) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        if (x <= radius) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        y += vy;
+        if (y >= 600 - 1 - radius) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        if (y <= radius) {
+            screen_list.remove(this);
+            t = 1;
+        }
+        rad_grad_param p1 = { GREEN, YELLOW };
+        if (t == 0)
+            PutTexturedCircle(x, y, radius, RadGradTex, &p1);
+        ttl--;
+    }
+};
+particle* particle_create(circle *p);
+
+//
+// CIRCLE
+//
+
+circle* circle_create()
+{
+    circle *pc = new circle();
+    if (pc) {
+        pc->type = type_circle;
+        pc->x = mouse.x;
+        pc->y = mouse.y;
+        pc->vx = (unsigned) rand() % 10 - 5;
+        pc->vy = (unsigned) rand() % 10 - 5;
+        pc->colour = rand();
+        pc->radius = (unsigned) rand() % 60 + 10;
+    }
     return pc;
 }
 
-void circle::animate()
-{
-    PutCircleC(x, y, 0, radius);
-    move(vx, vy);
-    if (x + radius == 800 - 1) {
-        vx = -vx;
-    }
-    if (x - radius == 0) {
-        vx = -vx;
-    }
-    if (y + radius == 600 - 1) {
-        vy = -vy;
-    }
-    if (y - radius == 0) {
-        vy = -vy;
-    }
-}
+//
+// STRING
+//
 
-void circle::move(int dx, int dy)
-{
-    x += dx; // == x = x + dx;
-    if (x + radius > 800 - 1) {
-        x = 800 - 1 - radius;
-    }
-    if (x - radius < 0) {
-        x = radius;
-    }
-
-    y += dy; // == y = y + dy;
-    if (y + radius > 600 - 1) {
-        y = 600 - 1 - radius;
-    }
-    if (y - radius < 0) {
-        y = radius;
-    }
-    PutCircleC(x, y, colour, radius);
-}
-
-str *string_create()
+str* str_create()
 {
     str *ps = new str();
-
-    if (rand() & 1) {
-        ps->str = "Hello";
-    } else {
-        ps->str = "My life for nagetsi!";
+    if (ps) {
+        ps->type = type_str;
+        ps->x = mouse.x;
+        ps->y = mouse.y;
+        ps->vx = (unsigned) rand() % 30 - 15;
+        ps->vy = (unsigned) rand() % 30 - 15;
+        ps->color = rand();
+        int r = rand() & 1;
+        if (r) ps->str = "Nagetsi";
+        else ps->str = "Vareniki";
+        ps->len = strlen(ps->str);
     }
-
-    ps->len = strlen(ps->str);
-    printf("%d\n", ps->len);
-
-    ps->x = mouse.x;//rand() % 800;
-    ps->y = mouse.y;//rand() % 600;
-    ps->vx = rand() % 30 - 10;
-    ps->vy = rand() % 30 - 10;
-    ps->colour = rand();
-
-    ps->move(0, 0);
     return ps;
 }
 
-void str::animate()
+//
+// PARTICLE
+//
+
+particle* particle_create(circle *p)
 {
-    PutStrC(x, y, 0, str);
-    move (vx, vy);
-    if (x + len * char_width == 800 - 1) {
-        vx = -vx;
+    particle *pc = new particle();
+    if (pc) {
+        pc->type = type_particle;
+        pc->x = p->x;
+        pc->y = p->y;
+        pc->vx = p->vx / 2 + (unsigned) rand() % 10 - 5;
+        pc->vy = p->vy / 2 + (unsigned) rand() % 5 - 2;
+        pc->colour = rand();
+        pc->radius = p->radius - (unsigned) rand() % p->radius;
     }
-    if (x == 0) {
-        vx = -vx;
-    }
-
-    if (y + char_height == 600 - 1) {
-        vy = -vy;
-    }
-    if (y == 0) {
-        vy = -vy;
-    }
-}
-
-void str::move(int dx, int dy)
-{
-    x += dx;
-    if (x + len * char_width > 800 -1) {
-        x = 800 - 1 - len * char_width;
-    }
-    if (x <= 0) {
-        x = 0;
-    }
-
-    y += dy;
-    if (y + char_height > 600 -1) {
-        y = 600 - 1 - char_height;
-    }
-    if (y <= 0) {
-        y = 0;
-    }
-    PutStrC(x, y, colour, str);
+    return pc;
 }
 
 //
-// ASM_MAIN_TEXT
+// ANIMATE
 //
 
-void animate(screen_obj *p)
-{
-    p->animate();
-}
+star star1c(200, 100, 8, 6);
+star star2c(300, 500, 1, 1);
 
-bool Ptrue(screen_obj *p) {
-    //printf("P(%p)\n", p);
-    return true;
-}
+bool Ptrue(screen_obj *){ return true; }
+bool test_mouse(screen_obj *p) { return p->testxy(mouse.x, mouse.y); }
+void animate(screen_obj *p) { p->animate(); }
 
 void asm_main_text(void)
 {
-    srand();
+    srand(0);
+    PutStrC(100, 100, 0xff1155, "Entaro Adun!");
+
     circle *pc = circle_create();
-    list lst;
+    printf("screen_list.first=%p\n", screen_list.first);
     int pause = 0;
 
     while (1) {
@@ -339,97 +597,40 @@ void asm_main_text(void)
             pause = !pause;
             break;
         case 'l':
-            printf("the last is %p\n", lst.findlast([](screen_obj *){return true;}));
+            printf("the last is %p\n", screen_list.findlast([](screen_obj *){return true;}));
             break;
         case Key::MouseMove:
             // hnhmh
             break;
         case Key::MouseLeft:
-            lst.add(circle_create());
+            screen_list.add(circle_create());
             break;
         case Key::MouseRight:
-            lst.add(string_create());
+            screen_list.add(str_create());
             printf("NAGETSI\n");
             break;
+        case Key::MouseMiddle: {
+            screen_obj *p = screen_list.findlast(test_mouse);
+            p = screen_list.remove(p);
+            if (p != NULL) {
+                p->clear();
+                if (p->type == type_circle) {
+                    for (int i = 0; i < 20; i++)
+                        screen_list.add(particle_create((circle *)p));
+                }
+            }
+            break;
+        }
         case Key::NextFrame:
-            if(pause == 0) {
-            animateC();
-            pc->animate();
-            lst.walk(animate);
+            if (!pause) {
+                screen_list.walk(animate);
+                star1c.animate();
+                star2c.animate();
+                PutPix(400, 300, 0xffff00);
+                PutCircleNewC(100, 100, 0xff0000, 20);
+                pc->animate();
             }
             break;
         }
     }
-
-    PutStrC(100, 100, 0xff1155, "Entaro Adun!");
 }
-
-
-#ifdef MAIN
-// g++ -DMAIN -fno-pic -fno-pie -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti asm1.cpp && ./a.out
-// i686-w64-mingw32-g++ -DMAIN -fno-pic -fno-pie -mconsole -static-libgcc -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti asm1.cpp && wine ./a.exe
-
-#include <stdio.h>
-
-typedef unsigned long long uint64_t;
-
-framebuf_t framebuf;
-framebuf_t *pframebuf = &framebuf;
-int waitkey(void) { return 0; }
-int getkey(void) { return 0; }
-char font8x13[13*256];
-
-#ifdef WIN32
-asm volatile (R"(
-    // export
-    pframebuf = _pframebuf
-    waitkey = _waitkey
-    getkey = _getkey
-    font8x13 = _font8x13
-)");
-#endif
-
-uint64_t rdtsc(void)
-{
-    unsigned tickl, tickh;
-    asm ("rdtsc" : "=a" (tickl), "=d" (tickh));
-    return (uint64_t) tickh << 32 | tickl;
-}
-
-int main()
-{
-    uint64_t beg, end;
-
-    beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
-        asm volatile ("");
-    }
-    end = rdtsc();
-    uint64_t eloop = end - beg;
-    printf("eloop = %.2f\n", 1.0/1000000 * eloop);
-/*
-    beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
-        PutCircleC(100, 100, 0xff1133, 44);
-    }
-    end = rdtsc();
-    uint64_t PutCircle1 = end - beg;
-    printf("PutCircle1 = %.2f\n", 1.0/1000000 * PutCircle1);
-
-    beg = rdtsc();
-    for (int i = 0; i < 100000; i++) {
-        PutCircleC2(100, 100, 0xff1133, 44);
-    }
-    end = rdtsc();
-    uint64_t PutCircle2 = end - beg;
-    printf("PutCircle2 = %.2f\n", 1.0/1000000 * PutCircle2);
-*/
-    beg = rdtsc();
-    for (int i = 0; i < 100; i++) {
-        strlen_testC(100000);
-    }
-    end = rdtsc();
-    uint64_t strlen_test1 = end - beg;
-    printf("strlen_test = %.2f\n", 1.0/1000000 * strlen_test1);
-}
-#endif
