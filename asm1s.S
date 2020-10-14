@@ -78,6 +78,13 @@ dot:   .string "dot=xxxxxxxx"
 hex:   .string "0123456789abcdef"
 s1:    .string "01234567890123456789012345678901234567890123456789012345678901234567890123456789"
 
+    .global _asm_mainC
+    .global asm_mainC
+_asm_mainC:
+asm_mainC:
+    call asm_main
+    ret
+
     .align 8
     .global asm_main
 asm_main:
@@ -442,6 +449,8 @@ seed:
 
 // void srand(void)
 
+    .global _srand
+_srand:
 srand:
     rdtsc
     mov [seed], eax
@@ -449,6 +458,8 @@ srand:
 
 // int rand(void)
 
+    .global _rand
+_rand:
 rand:
     push edx
     mov eax, 973656667
@@ -901,6 +912,7 @@ circle_move:
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
     .global _PutCircleC
+    .global PutCircleC
 _PutCircleC:
 PutCircleC:
     push ebx
@@ -1270,7 +1282,7 @@ str_move:
     pop ecx
     ret
 
-// int str_len(char* (edi) str)
+// int str_len(const char* (edi) str)
 
 str_len:
     push ecx
@@ -1329,8 +1341,24 @@ PutChar:
     pop ebp
     ret
 
-// void PutStr(int (eax) x, (ebx) y, (ecx) color, char* (edx) str)
+// void PutStr(int (eax) x, (ebx) y, (ecx) color, const char* (edx) str)
 
+    .global _PutStrC
+    .global PutStrC
+_PutStrC:
+PutStrC:
+    push ebx
+    push esi
+    push edi
+    mov eax, [esp + 16] # x
+    mov ebx, [esp + 20] # y
+    mov ecx, [esp + 24] # colour
+    mov edx, [esp + 28] # str
+    call PutStr
+    pop edi
+    pop esi
+    pop ebx
+    ret
 PutStr:
     push edx
     push ecx
@@ -1381,6 +1409,7 @@ endpic:
 // void strlen_testC(int repeat)
 
     .global _strlen_testC
+    .global strlen_testC
 _strlen_testC:
 strlen_testC:
     push ebx
