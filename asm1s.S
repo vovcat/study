@@ -487,11 +487,11 @@ rand_good:
 //
 
 animate:
-    # animate_star(&star1); // is equivalent of animate_s1();
+    # star_animate(&star1);
     mov eax, offset star1
     call star_animate
 
-    # animate_star(&star2);
+    # star_animate(&star2);
     mov eax, offset star2
     call star_animate
 
@@ -577,7 +577,7 @@ star2:
     /* vx */    .int 1
     /* vy */    .int 1
 
-// function animate_star(star *s (eax));
+// function star_animate(star *s (eax));
 
 star_animate:
     mov esi, eax
@@ -613,12 +613,12 @@ star_animate:
     call PutStar
     ret
 
-// void PutStarC(int x, y)
+// void PutStarAsm(int x, y)
 
-    .global _PutStarC
-    .global PutStarC
-_PutStarC:
-PutStarC:
+    .global _PutStarAsm
+    .global PutStarAsm
+_PutStarAsm:
+PutStarAsm:
     push ebx
     push esi
     push edi
@@ -659,12 +659,12 @@ PutStar:
     loop 1b
     ret
 
-// void Clear32x32C(int x, y, color)
+// void Clear32x32Asm(int x, y, color)
 
-    .global _Clear32x32C
-    .global Clear32x32C
-_Clear32x32C:
-Clear32x32C:
+    .global _Clear32x32Asm
+    .global Clear32x32Asm
+_Clear32x32Asm:
+Clear32x32Asm:
     push ebx
     push esi
     push edi
@@ -911,10 +911,10 @@ circle_move:
 
 // void PutCircle(int (eax) xc, (ebx) yc, (ecx) colour, (edx) radius)
 
-    .global _PutCircleC
-    .global PutCircleC
-_PutCircleC:
-PutCircleC:
+    .global _PutCircleAsm
+    .global PutCircleAsm
+_PutCircleAsm:
+PutCircleAsm:
     push ebx
     push esi
     push edi
@@ -1343,10 +1343,10 @@ PutChar:
 
 // void PutStr(int (eax) x, (ebx) y, (ecx) color, const char* (edx) str)
 
-    .global _PutStrC
-    .global PutStrC
-_PutStrC:
-PutStrC:
+    .global _PutStrAsm
+    .global PutStrAsm
+_PutStrAsm:
+PutStrAsm:
     push ebx
     push esi
     push edi
@@ -1365,7 +1365,6 @@ PutStr:
     push ebx
     push eax
     # x=[esp] y=[esp+4] color=[esp+8] str=[esp+12]
-
 1:  mov edx, [esp + 12] # str
     movzx edx, byte ptr [edx]
     cmp edx, 0
@@ -1406,12 +1405,12 @@ endpic:
     # done
     ret
 
-// void strlen_testC(int repeat)
+// void strlen_test_asm(int repeat)
 
-    .global _strlen_testC
-    .global strlen_testC
-_strlen_testC:
-strlen_testC:
+    .global _strlen_test_asm
+    .global strlen_test_asm
+_strlen_test_asm:
+strlen_test_asm:
     push ebx
     push esi
     push edi

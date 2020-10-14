@@ -12,3 +12,4 @@ test_usleep*.exe
 asm1
 asm1.exe
 fonts/drawfont2asm
+asm1bench

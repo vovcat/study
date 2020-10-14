@@ -21,7 +21,7 @@ asm1: wx.cpp font8x13.s asm1s.S asm1.cpp
 asm1.exe: wx.cpp font8x13.s asm1s.S asm1.cpp
 	i686-w64-mingw32-g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -mwindows -static-libgcc wx.cpp font8x13.s asm1s.S asm1.cpp -o $@ -lgdi32 -lws2_32 -lwinmm -lavrt -ldwmapi
 asm1bench: wx.cpp font8x13.s asm1s.S asm1.cpp asm1bench.cpp
-	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti -DMAIN asm1s.S asm1bench.cpp -o $@  -lX11 -lXext -lpthread
+	g++ -g -O2 -Wall -Wextra -fno-exceptions -fno-rtti -DMAIN asm1s.S asm1bench.cpp -o $@  -lX11 -lXext -lpthread
 test_asm: test_asm.cpp
 	g++ -g -O0 -Wall -Wextra -fno-exceptions -fno-rtti test_asm.cpp -o $@
 test_usleep: test_usleep.cpp
