@@ -38,10 +38,10 @@
 
 1592558726 d:\vmproj\asm1\wxasm.cpp
 
-1602349739 source:d:\vmproj\asm1\asm1.cpp
+1602511445 source:d:\vmproj\asm1\asm1.cpp
+	<stdio.h>
 	<string.h>
-	<stdio.h>
-	<stdio.h>
+	<cmath>
 
 1592665820 d:\vmproj\asm1\asm1.cpp
 
