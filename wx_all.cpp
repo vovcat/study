@@ -1188,8 +1188,7 @@ int main(int argc, char *argv[])
                 }
                 XEvent evtmp; // drain Expose messages
                 while (XCheckTypedEvent(display, Expose, &evtmp));
-                getkey_q.put(Key::NextFrame);
-                nredraws++;
+                if (getkey_q.size() <= 1) { getkey_q.put(Key::NextFrame); nredraws++; }
                 break;
             }
             case KeyPress:
@@ -1985,8 +1984,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             if (debug > 1) printf("[%" PRIu64 "] WM_PAINT drain\n", GetTickCount64());
             if (cnt > 3) while (PeekMessage(&msgtmp, NULL, WM_PAINT, WM_PAINT, PM_REMOVE | PM_NOYIELD | PM_QS_PAINT));
             if (debug > 1) printf("[%" PRIu64 "] WM_PAINT drain end\n", GetTickCount64());
-            getkey_q.put(Key::NextFrame);
-            nredraws++;
+            if (getkey_q.size() <= 1) { getkey_q.put(Key::NextFrame); nredraws++; }
             if (debug > 1) printf("[%" PRIu64 "] WM_PAINT end\n", GetTickCount64());
             return 0;
         }

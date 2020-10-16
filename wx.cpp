@@ -566,8 +566,7 @@ int main(int argc, char *argv[])
                 }
                 XEvent evtmp; // drain Expose messages
                 while (XCheckTypedEvent(display, Expose, &evtmp));
-                getkey_q.put(Key::NextFrame);
-                nredraws++;
+                if (getkey_q.size() <= 1) { getkey_q.put(Key::NextFrame); nredraws++; }
                 break;
             }
             case KeyPress:
@@ -823,8 +822,7 @@ static LRESULT CALLBACK WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPar
             EndPaint(hWnd, &ps);
             MSG msgtmp; // drain WM_PAINT messages
             while (PeekMessage(&msgtmp, NULL, WM_PAINT, WM_PAINT, PM_REMOVE | PM_NOYIELD | PM_QS_PAINT));
-            getkey_q.put(Key::NextFrame);
-            nredraws++;
+            if (getkey_q.size() <= 1) { getkey_q.put(Key::NextFrame); nredraws++; }
             return 0;
         }
         case WM_ERASEBKGND: {
