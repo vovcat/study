@@ -693,6 +693,16 @@ bool Ptrue(screen_obj *){ return true; }
 bool test_mouse(screen_obj *p) { return p->testxy(mouse.x, mouse.y); }
 void animate_obj(screen_obj *p) { p->animate(); }
 
+void animate()
+{
+    ClearScreen();
+    screen_list.walk(animate_obj);
+    star1c.animate();
+    star2c.animate();
+    PutPix(400, 300, 0xffff00);
+    PutCircleNew(100, 100, 0xff0000, 20);
+}
+
 void asm_main_text(void)
 {
     srand(0);
@@ -729,15 +739,13 @@ void asm_main_text(void)
             if (a) a->destroy();
             break;
         }
+        case 's':
+            pause = 1;
+            animate();
+            break;
         case Key::NextFrame:
-            if (!pause) {
-                ClearScreen();
-                screen_list.walk(animate_obj);
-                star1c.animate();
-                star2c.animate();
-                PutPix(400, 300, 0xffff00);
-                PutCircleNew(100, 100, 0xff0000, 20);
-            }
+            if (!pause)
+                animate();
             break;
         }
     }
