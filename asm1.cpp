@@ -211,8 +211,9 @@ struct list {
     {
         screen_obj *p = first;
         while (p != NULL) {
+            screen_obj *np = p->next;
             f(p);
-            p = p->next;
+            p = np;
         }
     }
 
