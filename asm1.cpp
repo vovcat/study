@@ -59,6 +59,7 @@ extern "C" {
     void PutCircleAsm(int x, int y, int color, int radius);
     void PutStrAsm(int x, int y, int color, const char *str);
     void strlen_test_asm(int repeat);
+    void ClearScreen(void);
 }
 
 void PutPix(int x, int y, int color)
@@ -297,6 +298,7 @@ struct star : screen_obj
 
     virtual void clear()
     {
+        return;
         Clear32x32Asm(x, y, 9548987835*0);
     }
 
@@ -354,6 +356,7 @@ struct circle_particle : screen_obj
 
     virtual void clear()
     {
+        return;
         if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
         if (x <= radius)           x  = radius;
         if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
@@ -432,6 +435,7 @@ struct circle : screen_obj
 
     virtual void clear()
     {
+        return;
         if (x >= 800 - 1 - radius) x  = 800 - 1 - radius;
         if (x <= radius)           x  = radius;
         if (y >= 600 - 1 - radius) y  = 600 - 1 - radius;
@@ -532,6 +536,7 @@ struct str_particle : screen_obj
 
     virtual void clear()
     {
+        return;
         if (x >= 800 - 1 - len * let_w) x  = 800 - 1 - len * let_w;
         if (x <= 0) x = 0;
         if (y >= 600 - 1 - let_h) y  = 600 - 1 - let_h;
@@ -599,6 +604,7 @@ struct str : screen_obj
 
     virtual void clear()
     {
+        return;
         if (x >= 800 - 1 - len * let_w) x  = 800 - 1 - len * let_w;
         if (x <= 0) x = 0;
         if (y >= 600 - 1 - let_h) y  = 600 - 1 - let_h;
@@ -725,6 +731,7 @@ void asm_main_text(void)
         }
         case Key::NextFrame:
             if (!pause) {
+                ClearScreen();
                 screen_list.walk(animate_obj);
                 star1c.animate();
                 star2c.animate();

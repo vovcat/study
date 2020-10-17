@@ -1039,12 +1039,18 @@ PutLine16:
 
 // void ClearScreen()
 
+    .global _ClearScreen
+    .global ClearScreen
+_ClearScreen:
 ClearScreen:
+    # preserve also ebx, esi, edi, ebp, esp
     push eax
+    push edi
     xor eax, eax
     mov ecx, 800*600
     mov edi, [pframebuf]
     rep stosd
+    pop edi
     pop eax
     ret
 
