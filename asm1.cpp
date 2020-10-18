@@ -367,7 +367,8 @@ struct circle_particle : screen_obj
     virtual void animate()
     {
         clear();
-        vy++; // gravity
+        if (lifetime % 3 == 0)
+            vy++; // gravity
 
         int removed = 0;
 
@@ -447,8 +448,11 @@ struct circle : screen_obj
     virtual void animate()
     {
         clear();
-        if (rand() & 1) vy++;
-        else vy--;
+
+        int r = rand() & 3;
+        if (r == 0) vy++;
+        else if (r == 1) vy--;
+
         x += vx;
         if (x >= 800 - 1 - radius) {
             x  = 800 - 1 - radius;
