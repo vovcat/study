@@ -451,6 +451,7 @@ int main(int argc, char *argv[])
             if (!dbe) dbe_ext = 0;
         }
     }
+    printf("dbe = %lx\n", dbe);
 
     XFontStruct *fnt = XLoadQueryFont(display, "6x10");
 
@@ -513,6 +514,8 @@ int main(int argc, char *argv[])
     }
     if (shmimg)
         pframebuf = (framebuf_t *) shmimg->data;
+
+    printf("shmimg = %p, shared_pixmaps = %d\n", shmimg, shared_pixmaps);
 
     // Show the window
     XMapRaised(display, win); // -> Expose event
