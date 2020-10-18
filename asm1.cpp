@@ -399,8 +399,9 @@ struct circle_particle : screen_obj
             screen_list.remove(this);
             removed = 1;
         }
-        rad_grad_param p1 = { colour, GREEN };
-        if (!removed) PutTexturedCircle(x, y, radius, RadGradTex, &p1);
+        //rad_grad_param p1 = { colour, GREEN };
+        //if (!removed) PutTexturedCircle(x, y, radius, RadGradTex, &p1);
+        if (!removed) PutCircleAsm(x, y, mix_colors(0x220000, 0xff5533, lifetime / 90.0), radius);
     }
 
     virtual void destroy()
