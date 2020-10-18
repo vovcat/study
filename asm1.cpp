@@ -377,7 +377,7 @@ struct circle_particle : screen_obj
             screen_list.remove(this);
             removed = 1;
         }
-        if (radius == 0) {
+        if (radius <= 0) {
             screen_list.remove(this);
             removed = 1;
         }
@@ -486,10 +486,10 @@ circle* circle_create()
         pc->type = type_circle;
         pc->x = mouse.x;
         pc->y = mouse.y;
-        pc->vx = (unsigned) rand() % 10 - 5;
-        pc->vy = (unsigned) rand() % 10 - 5;
+        pc->vx = rand() % 3;
+        pc->vy = rand() % 3;
         pc->colour = rand();
-        pc->radius = (unsigned) rand() % 60 + 10;
+        pc->radius = rand() % 30 + 40;
     }
     return pc;
 }
@@ -501,10 +501,10 @@ circle_particle *circle_particle_create(circle *pc)
         pcp->type = type_circle_particle;
         pcp->x = pc->x;
         pcp->y = pc->y;
-        pcp->vx = pc->vx / 2 + (unsigned) rand() % 30 - 15;
-        pcp->vy = pc->vy / 2 + (unsigned) rand() % 30 - 15;
+        pcp->vx = pc->vx / 2 + rand() % 15 - 10;
+        pcp->vy = pc->vy / 2 + rand() % 15 - 10;
         pcp->colour = pc->colour;
-        pcp->radius = pc->radius - (unsigned) rand() % pc->radius;
+        pcp->radius = (unsigned) rand() % pc->radius / 2 + 5;
         pcp->lifetime = 90;
     }
     return pcp;
@@ -653,11 +653,10 @@ str* str_create()
         ps->type = type_str;
         ps->x = mouse.x;
         ps->y = mouse.y;
-        ps->vx = (unsigned) rand() % 30 - 15;
-        ps->vy = (unsigned) rand() % 30 - 15;
+        ps->vx = rand() % 10;
+        ps->vy = rand() % 10;
         ps->color = rand();
-        int r = rand() & 1;
-        if (r) ps->str = "Nagetsi";
+        if (rand() & 1) ps->str = "Nagetsi";
         else ps->str = "Vareniki";
         ps->len = strlen(ps->str);
     }
@@ -671,8 +670,8 @@ str_particle *str_particle_create(str *ps, int i)
         psp->type = type_str_particle;
         psp->x = ps->x;
         psp->y = ps->y;
-        psp->vx = ps->vx + (unsigned) rand() % 10 - 5;
-        psp->vy = ps->vy + (unsigned) rand() % 10 - 5;
+        psp->vx = ps->vx + rand() % 5;
+        psp->vy = ps->vy + rand() % 5;
         psp->color = ps->color;
         psp->str[0] = ps->str[i];
         psp->str[1] = 0;
