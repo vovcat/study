@@ -495,6 +495,7 @@ circle* circle_create()
         pc->vy = rand() % 3;
         pc->colour = rand();
         pc->radius = rand() % 30 + 40;
+        pc->animate();
     }
     return pc;
 }
@@ -511,6 +512,7 @@ circle_particle *circle_particle_create(circle *pc)
         pcp->colour = pc->colour;
         pcp->radius = (unsigned) rand() % pc->radius / 2 + 5;
         pcp->lifetime = 90;
+        pcp->animate();
     }
     return pcp;
 }
@@ -664,6 +666,7 @@ str* str_create()
         if (rand() & 1) ps->str = "Nagetsi";
         else ps->str = "Vareniki";
         ps->len = strlen(ps->str);
+        ps->animate();
     }
     return ps;
 }
@@ -682,6 +685,7 @@ str_particle *str_particle_create(str *ps, int i)
         psp->str[1] = 0;
         psp->len = strlen(psp->str);
         psp->lifetime = 90;
+        psp->animate();
     }
     return psp;
 }
