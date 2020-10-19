@@ -271,12 +271,37 @@ void asm_main_call(void)
     //return NULL;
 }
 
+static long frametime[100];
+static int frametime_last = 0;
+static struct timeval frametime_last_tv = {};
+static long frametime_us = 1000000 / FPS;
+
+static long timediff_us(struct timeval *before, struct timeval *after)
+{
+    return (
+        (long long) (after->tv_sec - before->tv_sec) * 1000000ll +
+        (long long) (after->tv_usec - before->tv_usec)
+    );
+}
+
 int wait_for_vsync(int drmfd)
 {
     drm_wait_vblank_t u = {};
     u.request.type = _DRM_VBLANK_RELATIVE;
     u.request.sequence = 1;
-    return ioctl(drmfd, DRM_IOCTL_WAIT_VBLANK, &u);
+    int ret = ioctl(drmfd, DRM_IOCTL_WAIT_VBLANK, &u);
+
+    struct timeval now;
+    gettimeofday(&now, NULL);
+    long us = timediff_us(&frametime_last_tv, &now);
+    if (us > 0 && us < frametime_us) usleep(frametime_us - us);
+
+    gettimeofday(&now, NULL);
+    frametime[frametime_last++] = timediff_us(&frametime_last_tv, &now);
+    frametime_last %= ARRAY_SIZE(frametime);
+    frametime_last_tv = now;
+
+    return ret;
 }
 
 void swap_buffers(Display *display, Window win, XdbeBackBuffer dbe)
@@ -301,6 +326,21 @@ int main(int argc, char *argv[])
     debug = 0;
     benchmark = 0;
     nredraws = 0;
+
+    int opt;
+    while ((opt = getopt(argc, argv, "DS")) != -1) {
+        switch (opt) {
+            case 'D':
+                use_dbe = 0;
+                break;
+            case 'S':
+                use_shared_pixmaps = 0;
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-D] [-S]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
 
     /* GENERAL INFO */
     int drmfd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
@@ -451,7 +491,7 @@ int main(int argc, char *argv[])
             if (!dbe) dbe_ext = 0;
         }
     }
-    printf("dbe = %lx\n", dbe);
+    printf("use_dbe = %d, dbe = %#lx\n", use_dbe, dbe);
 
     XFontStruct *fnt = XLoadQueryFont(display, "6x10");
 
@@ -492,11 +532,11 @@ int main(int argc, char *argv[])
         shared_pixmaps = XSync(display, False);
     }
     if (!shared_pixmaps) {
-        XShmDetach(display, &shminfo);
+        if (shminfo.shmaddr != (char *) -1) XShmDetach(display, &shminfo);
 
         if (shminfo.shmaddr != (char *) -1) shmdt(shminfo.shmaddr);
         shminfo.shmaddr = (char *) -1;
-        shmimg->data = NULL;
+        if (shmimg != NULL) shmimg->data = NULL;
 
         if (shminfo.shmid != -1) shmctl(shminfo.shmid, IPC_RMID, 0);
         shminfo.shmid = -1;
@@ -515,7 +555,7 @@ int main(int argc, char *argv[])
     if (shmimg)
         pframebuf = (framebuf_t *) shmimg->data;
 
-    printf("shmimg = %p, shared_pixmaps = %d\n", shmimg, shared_pixmaps);
+    printf("use_shared_pixmaps = %d, shared_pixmaps = %d, shmimg = %p\n", use_shared_pixmaps, shared_pixmaps, shmimg);
 
     // Show the window
     XMapRaised(display, win); // -> Expose event
@@ -610,6 +650,8 @@ int main(int argc, char *argv[])
                 }
 
                 done = key == 'q';
+                if (ev.type == KeyPress && key == '[') { frametime_us -= 10; printf("frametime_us = %ld\n", frametime_us); }
+                if (ev.type == KeyPress && key == ']') { frametime_us += 10; printf("frametime_us = %ld\n", frametime_us); }
                 break;
             }
             case MotionNotify: {
@@ -675,6 +717,14 @@ int main(int argc, char *argv[])
     XCloseIM(xim);
     XDestroyWindow(display, win);
     XCloseDisplay(display);
+
+    printf("frametime:\n");
+    for (size_t i = 0; i < ARRAY_SIZE(frametime); i++) {
+        long us = frametime[(frametime_last + i) % ARRAY_SIZE(frametime)];
+        printf(" %6ld%c", us, us >= 17000 ? '*' : ' ');
+        if (i % 10 == 9) printf("\n");
+    }
+    printf("\n");
     return 0;
 }
 

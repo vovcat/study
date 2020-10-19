@@ -35,7 +35,7 @@ g:
 	egrep -r $(S) /usr/share/mingw-w64/include/ /usr/i686-w64-mingw32/include/ /usr/lib/gcc/i686-w64-mingw32/*/include*
 
 clean:
-	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe asm1 asm1.exe
+	rm -f cvq_lin cvq_win.exe cv_win.exe wx_all wx_all.exe wx wx.exe test_asm test_usleep test_usleep.exe asm1 asm1.exe asm1bench
 
 vars =	$(foreach v, $(filter-out .VARIABLES vars, $(.VARIABLES)),	\
 		$(if $(filter-out environment, $(origin $(v))),		\
